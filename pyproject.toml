@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "qiskit-pulse-control"
+version = "0.1.0"
+description = ""
+authors = ["Ivana <ivana.gyro@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+qiskit = "^1.2.4"
+qiskit-ibm-runtime = "^0.31.0"
+matplotlib = "^3.9.2"
+pylatexenc = "^2.10"
+klepto = "^0.2.6"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
