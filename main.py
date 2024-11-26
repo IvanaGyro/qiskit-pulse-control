@@ -68,10 +68,6 @@ def get_service():
     return service
 
 
-def sorted_dict(dict_object):
-    return dict(sorted(dict_object.items(), key=lambda x: x[0]))
-
-
 class RetrieveJobError(Exception):
     """Exception raised when the requested job is not done."""
 
@@ -161,15 +157,12 @@ def x_gaussian_pulse_with_different_amplitude_and_sigma():
 
     results = submit_job()
     for idx, result in enumerate(results):
-        # print(sorted_dict(result.data['c'].get_counts()))
         bitarray = result.data['c']
         sigma, amplitude = combinations[idx]
         print(f'sigma:{sigma} amplitude:{amplitude}')
         print(
             f'excited state proportion: {bitarray.get_int_counts()[1] / bitarray.num_shots}'
         )
-        # print(sorted_dict(result.data['c'].get_int_counts()))
-        # print(sorted_dict(result.data['c'].slice_bits([0]).get_int_counts()))
 
 
 def find_best_sigma_for_x_gate():
