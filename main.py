@@ -366,6 +366,40 @@ class CompareDragAndGaussian(QiskitTask):
         print(f'X gate: {get_population(result[2])}')
 
 
+class ConcatTwoPulsesToMatchGranularity(QiskitTask):
+    '''
+    This is invalid. Error message: Pulse not a multiple of 16 cycles
+    '''
+
+    def submit_job(self):
+        backend = get_service().backend('ibm_sherbrooke')
+        qc = QuantumCircuit(1, 1)
+        with pulse.build(backend) as gate_pulse:
+            pulse1 = Gaussian(duration=42, amp=1.0, sigma=32)
+            pulse2 = Gaussian(duration=38, amp=1.0, sigma=32)
+            pulse.play(pulse1, pulse.drive_channel(0))
+            pulse.play(pulse2, pulse.drive_channel(0))
+
+            # gate_pulse.draw()
+
+            gate = Gate(name='Two Gaussian',
+                        label='GG',
+                        num_qubits=1,
+                        params=[])
+            qc.append(gate, [0])
+            qc.add_calibration(gate, [0], gate_pulse)
+
+            # qc.draw('mpl')
+        circuits = [qc]
+
+        sampler = SamplerV2(mode=backend)
+        job = sampler.run(circuits)
+        return job.job_id()
+
+    def post_process(self, result):
+        print('Can concat two pulses to match the granularity.')
+
+
 
 GaussianPulseCalibration('ibm_sherbrooke',
                          amplitudes=[0.5, 0.75, 1],
@@ -385,3 +419,5 @@ CompareDragAndGaussian('ibm_sherbrooke',
                        sigma=64,
                        beta=3.279359125685733,
                        angle=0.0).run()
+
+ConcatTwoPulsesToMatchGranularity().run()
