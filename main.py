@@ -375,6 +375,10 @@ GaussianPulseCalibration('ibm_sherbrooke',
                          amplitudes=[1],
                          sigmas=list(range(5, 101))).run()
 
+GaussianPulseCalibration('ibm_sherbrooke',
+                         amplitudes=[1],
+                         sigmas=[20 + i * 0.1 for i in range(20)]).run()
+
 CompareDragAndGaussian('ibm_sherbrooke',
                        duration=256,
                        amplitude=0.2002363461992037,
