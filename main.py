@@ -1,5 +1,5 @@
 from qiskit.pulse import Schedule, Play, DriveChannel
-from qiskit.pulse.library import Gaussian
+from qiskit.pulse.library import Gaussian, Drag
 from qiskit_ibm_runtime import QiskitRuntimeService
 from qiskit_ibm_runtime import SamplerV2
 from qiskit.circuit import Gate
@@ -8,6 +8,7 @@ from qiskit import pulse
 from pprint import pprint
 import qiskit_ibm_runtime
 from qiskit_ibm_runtime import RuntimeEncoder, RuntimeDecoder
+from qiskit.primitives import SamplerPubResult, BitArray
 
 from klepto.safe import no_cache
 from klepto.archives import dir_archive, file_archive
@@ -165,6 +166,8 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
     Implement `submit_job()` and `post_process()` in the subclass, and call
     `run()` on the instance of the subclass. This class will help you submit the
     job, save the result, and execute the post process.
+
+    See `class CompareDragAndGaussian` for the example.
     '''
 
     @abc.abstractmethod
@@ -360,5 +363,69 @@ def find_best_sigma_for_x_gate():
         print(f'sigma:{sigmas[idx]} proportion:{proportion}')
 
 
+@dataclass
+class CompareDragAndGaussian(QiskitTask):
+    backend: str
+    duration: int
+    amplitude: float
+    sigma: float
+    beta: float
+    angle: float = 0.0
+
+    def submit_job(self):
+        backend = get_service().backend(self.backend)
+
+        circuit_with_gaussion = QuantumCircuit(1, 1)
+        with pulse.build(backend) as gate_pulse:
+            waveform = Gaussian(self.duration, self.amplitude, self.sigma,
+                                self.angle)
+            pulse.play(waveform, pulse.drive_channel(0))
+
+            # gate_pulse.draw()
+            gate = Gate(name='Gaussian', label='G', num_qubits=1, params=[])
+            circuit_with_gaussion.append(gate, [0])
+            circuit_with_gaussion.add_calibration(gate, [0], gate_pulse)
+        circuit_with_gaussion.measure(0, 0)
+
+        circuit_with_drag = QuantumCircuit(1, 1)
+        with pulse.build(backend) as gate_pulse:
+            waveform = Drag(self.duration, self.amplitude, self.sigma,
+                            self.beta, self.angle)
+            pulse.play(waveform, pulse.drive_channel(0))
+
+            # gate_pulse.draw()
+            gate = Gate(name='Drag', label='D', num_qubits=1, params=[])
+            circuit_with_drag.append(gate, [0])
+            circuit_with_drag.add_calibration(gate, [0], gate_pulse)
+        circuit_with_drag.measure(0, 0)
+
+        circuit_with_x = QuantumCircuit(1, 1)
+        circuit_with_x.x(0)
+        circuit_with_x.measure(0, 0)
+
+        circuits = [circuit_with_gaussion, circuit_with_drag, circuit_with_x]
+        sampler = SamplerV2(mode=backend)
+        job = sampler.run(circuits)
+        return job.job_id()
+
+    def post_process(self, result):
+
+        def get_population(circuit_result: SamplerPubResult):
+            bitarray: BitArray = circuit_result.data['c']
+            return bitarray.get_int_counts()[1] / bitarray.num_shots
+
+        print(self)
+        print(f'Gaussian: {get_population(result[0])}')
+        print(f'Drag: {get_population(result[1])}')
+        print(f'X gate: {get_population(result[2])}')
+
+
 # x_gaussian_pulse_with_different_amplitude_and_sigma()
-find_best_sigma_for_x_gate()
+# find_best_sigma_for_x_gate()
+
+CompareDragAndGaussian('ibm_sherbrooke',
+                       duration=256,
+                       amplitude=0.2002363461992037,
+                       sigma=64,
+                       beta=3.279359125685733,
+                       angle=0.0).run()
