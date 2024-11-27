@@ -258,109 +258,55 @@ def handle_job(task_name):
     return decorator
 
 
-def x_gaussian_pulse_with_different_amplitude_and_sigma():
-    amplitudes = [0.5, 0.75, 1]
-    sigmas = [16, 24, 32, 40, 48]
-    combinations = [(s, a) for a in amplitudes for s in sigmas]
+@dataclass
+class GaussianPulseCalibration(QiskitTask):
+    backend: str
+    amplitudes: list[float]
+    sigmas: list[float]
 
-    def build_circuit_executing_gaussian_pulse(backend, sigma,
-                                               amplitude) -> QuantumCircuit:
-        with pulse.build(backend) as gate_pulse:
-            # duration must be a multiple of 16 cycles
-            # for gaussion duration should at least 64dt: (error: Pulse gaussian has too few samples (48 < 64) )
-            # XXX: If the amplitude is half (0.5), does the pulse only rotate pi/2?
-            microwave = Gaussian(duration=sigma * 6, amp=amplitude, sigma=sigma)
-            pulse.play(microwave, pulse.drive_channel(0))
-
-            # gate_pulse.draw()
-
-            gate = Gate(name='custom_pulse',
-                        label='CP',
-                        num_qubits=1,
-                        params=[])
-            qc = QuantumCircuit(2, 2)
-
-            # append the custom gate
-            qc.append(gate, [0])
-            qc.measure(0, 0)
-
-            # define pulse of quantum gate
-            qc.add_calibration(gate, [0], gate_pulse)
-
-            # qc.draw('mpl')
-            return qc
-
-    @handle_job(x_gaussian_pulse_with_different_amplitude_and_sigma.__name__)
-    def submit_job():
-        backend = get_service().backend('ibm_sherbrooke')
-        circuits = [
-            build_circuit_executing_gaussian_pulse(backend, sigma, amplitude)
-            for sigma, amplitude in combinations
+    def __post_init__(self):
+        self.gaussian_parameters = [
+            (a, s) for a in self.amplitudes for s in self.sigmas
         ]
 
-        sampler = SamplerV2(mode=backend)
-        job = sampler.run(circuits)
-        return job.job_id()
-
-    results = submit_job()
-    for idx, result in enumerate(results):
-        bitarray = result.data['c']
-        sigma, amplitude = combinations[idx]
-        print(f'sigma:{sigma} amplitude:{amplitude}')
-        print(
-            f'excited state proportion: {bitarray.get_int_counts()[1] / bitarray.num_shots}'
-        )
-
-
-def find_best_sigma_for_x_gate():
-    sigmas = list(range(5, 101))
-
-    def build_circuit_executing_gaussian_pulse(backend, sigma,
-                                               amplitude) -> QuantumCircuit:
+    def build_circuit(self, backend, amplitude, sigma):
         with pulse.build(backend) as gate_pulse:
             # duration must be a multiple of 16 cycles
-            # for gaussion duration should at least 64dt: (error: Pulse gaussian has too few samples (48 < 64) )
-            # XXX: If the amplitude is half (0.5), does the pulse only rotate pi/2?
-            duration = (sigma * 6 + 15) // 16 * 16
+            # duration should be at least 64dt and must be int
+            duration = int((sigma * 6 + 15) // 16 * 16)
             duration = max(duration, 64)
-            microwave = Gaussian(duration=duration, amp=amplitude, sigma=sigma)
+            microwave = Gaussian(duration, amplitude, sigma)
             pulse.play(microwave, pulse.drive_channel(0))
 
             # gate_pulse.draw()
+            # print(gate_pulse)
 
-            gate = Gate(name='custom_pulse',
-                        label='CP',
-                        num_qubits=1,
-                        params=[])
-            qc = QuantumCircuit(2, 2)
-
-            # append the custom gate
+            gate = Gate(name='Gaussian', label='G', num_qubits=1, params=[])
+            qc = QuantumCircuit(1, 1)
             qc.append(gate, [0])
-            qc.measure(0, 0)
-
-            # define pulse of quantum gate
             qc.add_calibration(gate, [0], gate_pulse)
 
-            # qc.draw('mpl')
+            # Must do measurement to get the result from the sampler.
+            qc.measure(0, 0)
             return qc
 
-    @handle_job(find_best_sigma_for_x_gate.__name__)
-    def submit_job():
-        backend = get_service().backend('ibm_sherbrooke')
+    def submit_job(self):
+        backend = get_service().backend(self.backend)
         circuits = [
-            build_circuit_executing_gaussian_pulse(backend, sigma, 1)
-            for sigma in sigmas
+            self.build_circuit(backend, amplitude, sigma)
+            for amplitude, sigma in self.gaussian_parameters
         ]
-
         sampler = SamplerV2(mode=backend)
         job = sampler.run(circuits)
         return job.job_id()
 
-    results = submit_job()
-    for idx, result in enumerate(results):
-        bitarray = result.data['c']
-        proportion = bitarray.get_int_counts()[1] / bitarray.num_shots
-        print(f'sigma:{sigmas[idx]} proportion:{proportion}')
+    def post_process(self, result):
+        for circuit_result, (amplitude, sigma) in zip(result,
+                                                      self.gaussian_parameters):
+            bitarray: BitArray = circuit_result.data['c']
+            population = bitarray.get_int_counts()[1] / bitarray.num_shots
+            print(
+                f'sigma:{sigma} amplitude:{amplitude} population:{population}')
 
 
 @dataclass
@@ -420,8 +366,14 @@ class CompareDragAndGaussian(QiskitTask):
         print(f'X gate: {get_population(result[2])}')
 
 
-# x_gaussian_pulse_with_different_amplitude_and_sigma()
-# find_best_sigma_for_x_gate()
+
+GaussianPulseCalibration('ibm_sherbrooke',
+                         amplitudes=[0.5, 0.75, 1],
+                         sigmas=[16, 24, 32, 40, 48]).run()
+
+GaussianPulseCalibration('ibm_sherbrooke',
+                         amplitudes=[1],
+                         sigmas=list(range(5, 101))).run()
 
 CompareDragAndGaussian('ibm_sherbrooke',
                        duration=256,
