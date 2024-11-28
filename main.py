@@ -82,16 +82,6 @@ class RetrieveJobError(Exception):
         self.job_id = job_id
 
 
-@no_cache(cache=dir_archive(name=CACHE_DIR / 'job_results'),
-          keymap=stable_keymap)
-def retrieve_job_results(job_id):
-    job = get_service().job(job_id)
-    status = job.status()
-    if status != "DONE":
-        raise RetrieveJobError(f'The job is in the status: {status}', job_id)
-    return job.result()
-
-
 class _QiskitTaskMeta(abc.ABCMeta):
     ''' A Meta class for modifying the classes inherited the `QiskitTask` class.
 
@@ -234,30 +224,6 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
             self.post_process(result)
 
 
-def handle_job(task_name):
-    job_id_cache = no_cache(cache=file_archive(name=CACHE_DIR /
-                                               f'{task_name}-job_id.pkl'),
-                            keymap=stable_keymap)
-
-    def decorator(submit_job_function):
-        submit_job_function = job_id_cache(submit_job_function)
-
-        # The job result is not picklable. Use the patched json a the protocol
-        # as an workaround.
-        @no_cache(
-            cache=file_archive(name=CACHE_DIR / f'{task_name}-results.pkl',
-                               protocol='json'),
-            keymap=stable_keymap,
-        )
-        def wrapper():
-            job_id = submit_job_function()
-            return retrieve_job_results(job_id)
-
-        return wrapper
-
-    return decorator
-
-
 @dataclass
 class GaussianPulseCalibration(QiskitTask):
     backend: str
@@ -398,7 +364,6 @@ class ConcatTwoPulsesToMatchGranularity(QiskitTask):
 
     def post_process(self, result):
         print('Can concat two pulses to match the granularity.')
-
 
 
 GaussianPulseCalibration('ibm_sherbrooke',
