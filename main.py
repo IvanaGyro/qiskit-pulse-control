@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 import abc
 import inspect
+import dill
 
 import matplotlib.pyplot as plt
 
@@ -27,7 +28,11 @@ import matplotlib.pyplot as plt
 # doesn't generate the same value for the same input cross sessions. This
 # unstable behavor leads the cache fails to load the results stored in the
 # previous session.
-stable_keymap = picklemap() + hashmap(algorithm='md5')
+#
+# `picklemap()` will just call `__repr__()` if the serializer is not assigned to
+# generate the key. This makes the key from the instance which doesn't belong to
+# the dataclass different across sessions.
+stable_keymap = picklemap(serializer=dill) + hashmap(algorithm='md5')
 
 CACHE_DIR = Path('cache')
 
@@ -136,7 +141,8 @@ class _QiskitTaskMeta(abc.ABCMeta):
         # called if the job result hasn't been cached. This is a trade-off to
         # save the time on calling `run()` after the result is cached.
         job_id_cache = no_cache(cache=dir_archive(name=CACHE_DIR / name /
-                                                  'job_id'),
+                                                  'job_id',
+                                                  protocol='json'),
                                 keymap=stable_keymap)
         cls.submit_job = job_id_cache(unwrap_and_rewrap(cls.submit_job))
 
