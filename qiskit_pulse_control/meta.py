@@ -1,4 +1,5 @@
 import abc
+import dataclasses
 import inspect
 import json
 from pathlib import Path
@@ -62,15 +63,26 @@ def set_token(token: str):
     _token = token
 
 
-def get_service():
+def get_service(channel='ibm_quantum'):
+    if channel == 'local':
+        # Getting a local service is quick, so there is no need to cache.
+        return QiskitRuntimeService(channel='local')
     global service
     if service is None:
         if _token is None:
             raise RuntimeError(
                 'Please call set_token() before getting a service.')
         service = QiskitRuntimeService(
-            instance='ibm-q/open/main', channel='ibm_quantum', token=_token)
+            instance='ibm-q/open/main', channel=channel, token=_token)
     return service
+
+
+def get_backend(backend_name: str):
+    if backend_name.startswith('fake_'):
+        return get_service('local').backend(backend_name)
+    if backend_name.startswith('ibm_'):
+        return get_service().backend(backend_name)
+    raise ValueError(f'invalid backend name:{backend_name}')
 
 
 class RetrieveJobError(Exception):
@@ -151,6 +163,7 @@ class _QiskitTaskMeta(abc.ABCMeta):
         return cls
 
 
+@dataclasses.dataclass
 class QiskitTask(metaclass=_QiskitTaskMeta):
     ''' A helper class for handling the Qiskit tasks.
 
@@ -159,16 +172,24 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
     job, save the result, and execute the post process.
 
     See `class CompareDragAndGaussian` for the example.
+
+    Attributes:
+        backend (str):
+            The name of the backend for running the job. The prefix
+            of the fake backend is "fake" instead of "ibm", for example
+            "fake_sherbrooke".
     '''
+    backend: str
 
     @abc.abstractmethod
-    def submit_job(self) -> str:
+    def submit_job(self) -> str | qiskit_ibm_runtime.RuntimeJobV2:
         '''Create a qiskit job and send it to IBMQ
 
         You must implement this method.
 
         Returns:
-            A string of the job id.
+            A string of the job id when the backend is an IBM device, otherwise
+            the result of the job when the backend is a fake backend.
         '''
         raise NotImplementedError()
 
@@ -192,7 +213,11 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
         This method is decorated by the metaclass. The result will be cached if
         this method successfully gets the result.
         '''
-        job_id = self.submit_job()
+        job_id_or_result = self.submit_job()
+        if self.is_fake_backend():
+            job_result = job_id_or_result
+            return job_result
+        job_id = job_id_or_result
         job = get_service().job(job_id)
         status = job.status()
         if status != "DONE":
@@ -224,3 +249,11 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
             print(e)
         else:
             self.post_process(result)
+
+    def is_fake_backend(self) -> bool:
+        '''Check if the assigned backend is a fake backend
+
+        Returns:
+            `True` if the backend name starts with "fake\_", otherwise `False`.
+        '''
+        return self.backend.startswith('fake_')

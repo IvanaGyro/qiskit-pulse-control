@@ -12,6 +12,8 @@ qiskit-ibm-runtime = "^0.31.0"
 matplotlib = "^3.9.2"
 pylatexenc = "^2.10"
 klepto = "^0.2.6"
+qiskit-aer = "^0.15.1"
+qutip = "^5.0.4"
 
 
 [build-system]
