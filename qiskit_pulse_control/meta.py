@@ -23,6 +23,7 @@ stable_keymap = picklemap(serializer=dill) + hashmap(algorithm='md5')
 CACHE_DIR = Path('cache')
 
 service = None
+_token = None
 
 
 def patch_json():
@@ -56,11 +57,19 @@ def patch_json():
 patch_json()
 
 
+def set_token(token: str):
+    global _token
+    _token = token
+
+
 def get_service():
     global service
     if service is None:
+        if _token is None:
+            raise RuntimeError(
+                'Please call set_token() before getting a service.')
         service = QiskitRuntimeService(
-            instance='ibm-q/open/main', channel='ibm_quantum', token='MY_TOKEN')
+            instance='ibm-q/open/main', channel='ibm_quantum', token=_token)
     return service
 
 

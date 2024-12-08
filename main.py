@@ -151,26 +151,32 @@ class ConcatTwoPulsesToMatchGranularity(meta.QiskitTask):
         print('Can concat two pulses to match the granularity.')
 
 
-# GaussianPulseCalibration('ibm_sherbrooke',
-#                          amplitudes=[0.5, 0.75, 1],
-#                          sigmas=[16, 24, 32, 40, 48]).run()
+def main():
+    meta.set_token('MY_TOKEN')
 
-# GaussianPulseCalibration('ibm_sherbrooke',
-#                          amplitudes=[1],
-#                          sigmas=list(range(5, 101))).run()
+    # GaussianPulseCalibration('ibm_sherbrooke',
+    #                          amplitudes=[0.5, 0.75, 1],
+    #                          sigmas=[16, 24, 32, 40, 48]).run()
 
-# GaussianPulseCalibration('ibm_sherbrooke',
-#                          amplitudes=[1],
-#                          sigmas=[20 + i * 0.1 for i in range(20)]).run()
+    # GaussianPulseCalibration('ibm_sherbrooke',
+    #                          amplitudes=[1],
+    #                          sigmas=list(range(5, 101))).run()
 
-# CompareDragAndGaussian('ibm_sherbrooke',
-#                        duration=256,
-#                        amplitude=0.2002363461992037,
-#                        sigma=64,
-#                        beta=3.279359125685733,
-#                        angle=0.0).run()
+    # GaussianPulseCalibration('ibm_sherbrooke',
+    #                          amplitudes=[1],
+    #                          sigmas=[20 + i * 0.1 for i in range(20)]).run()
 
-sigmas = [31 + i * 0.1 for i in range(20)] + [52 + i * 0.1 for i in range(20)]
-GaussianPulseCalibration('ibm_sherbrooke', amplitudes=[1], sigmas=sigmas).run()
+    # CompareDragAndGaussian('ibm_sherbrooke',
+    #                        duration=256,
+    #                        amplitude=0.2002363461992037,
+    #                        sigma=64,
+    #                        beta=3.279359125685733,
+    #                        angle=0.0).run()
 
-# ConcatTwoPulsesToMatchGranularity().run()
+    sigmas = [31 + i * 0.1 for i in range(20)] + [52 + i * 0.1 for i in range(20)]
+    GaussianPulseCalibration('ibm_sherbrooke', amplitudes=[1], sigmas=sigmas).run()
+
+    # ConcatTwoPulsesToMatchGranularity().run()
+
+if __name__ == '__main__':
+    main()
