@@ -1,15 +1,15 @@
 import abc
 import dataclasses
 import inspect
-import json
-from pathlib import Path
+import pathlib
 
 import dill
-import qiskit_ibm_runtime
 from klepto.archives import dir_archive
 from klepto.keymaps import hashmap, picklemap
 from klepto.safe import no_cache
-from qiskit_ibm_runtime import QiskitRuntimeService, RuntimeEncoder, RuntimeDecoder
+import qiskit_ibm_runtime
+
+from qiskit_pulse_control import unified_job
 
 # Without setting the algorithm, klepto uses Python's built-in hash(), which
 # doesn't generate the same value for the same input cross sessions. This
@@ -21,42 +21,10 @@ from qiskit_ibm_runtime import QiskitRuntimeService, RuntimeEncoder, RuntimeDeco
 # the dataclass different across sessions.
 stable_keymap = picklemap(serializer=dill) + hashmap(algorithm='md5')
 
-CACHE_DIR = Path('cache')
+CACHE_DIR = pathlib.Path('cache')
 
 service = None
 _token = None
-
-
-def patch_json():
-    '''
-    Some classes, like `DataBin`, in the job results always raise
-    `NotImplementedError` when calling the `__setattr__` function. This design
-    makes those classes not picklable. `klepto` doesn't provide the interface
-    for customizing the dump process and the load process and only provide
-    three protocol for dumping and loading, `pickle`, `json`, and `dill`. The
-    official way to save and to load the job results is using json with
-    `RuntimeEncoder` and `RuntimeDecoder`, so the simple workaround is to patch
-    `json` and to use `json` as the protocol of `klepto`.
-    '''
-    original_json_dump = json.dump
-    original_json_load = json.load
-
-    def json_dump_for_job_results(*args, **kargs):
-        if 'cls' in kargs:
-            del kargs['cls']
-        return original_json_dump(*args, cls=RuntimeEncoder, **kargs)
-
-    def json_load_for_job_results(*args, **kargs):
-        if 'cls' in kargs:
-            del kargs['cls']
-        return original_json_load(*args, cls=RuntimeDecoder, **kargs)
-
-    json.dump = json_dump_for_job_results
-    json.load = json_load_for_job_results
-
-
-patch_json()
-
 
 def set_token(token: str):
     global _token
@@ -66,13 +34,13 @@ def set_token(token: str):
 def get_service(channel='ibm_quantum'):
     if channel == 'local':
         # Getting a local service is quick, so there is no need to cache.
-        return QiskitRuntimeService(channel='local')
+        return qiskit_ibm_runtime.QiskitRuntimeService(channel='local')
     global service
     if service is None:
         if _token is None:
             raise RuntimeError(
                 'Please call set_token() before getting a service.')
-        service = QiskitRuntimeService(
+        service = qiskit_ibm_runtime.QiskitRuntimeService(
             instance='ibm-q/open/main', channel=channel, token=_token)
     return service
 
@@ -133,18 +101,18 @@ class _QiskitTaskMeta(abc.ABCMeta):
                     The method of the class.
             '''
             if hasattr(method, '__wrapped__'):
-                # The method has wrapped with the cache of the super class
-                # should have been wrapped with the wrapper below.
+                # The method has wrapped by the cache of the super class.
                 return method.__wrapped__
 
             def wrapper(*args, **kwargs):
+                # XXX: Why we cannot just return `method`?
                 return method(*args, **kwargs)
 
             return wrapper
 
         # We don't ignore `self` in the two cache below, so all the attributes
         # of the instance will be used to calculate the key for the cache. With
-        # this practive, the key is always generated twice everytime `run()` is
+        # this practice, the key is always generated twice everytime `run()` is
         # called if the job result hasn't been cached. This is a trade-off to
         # save the time on calling `run()` after the result is cached.
         job_id_cache = no_cache(
@@ -153,8 +121,8 @@ class _QiskitTaskMeta(abc.ABCMeta):
             keymap=stable_keymap)
         cls.submit_job = job_id_cache(unwrap_and_rewrap(cls.submit_job))
 
-        # The job result is not picklable. Use the patched json a the protocol
-        # as an workaround.
+        # The job result is not picklable. As an workaround, use the patched
+        # json as the protocol.
         result_archive = dir_archive(
             name=CACHE_DIR / name / 'result', protocol='json')
         result_cache = no_cache(cache=result_archive, keymap=stable_keymap)
@@ -182,14 +150,15 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
     backend: str
 
     @abc.abstractmethod
-    def submit_job(self) -> str | qiskit_ibm_runtime.RuntimeJobV2:
+    def submit_job(self) -> str | qiskit_ibm_runtime.RuntimeJobV2 | unified_job.Job:
         '''Create a qiskit job and send it to IBMQ
 
         You must implement this method.
 
-        Returns:
-            A string of the job id when the backend is an IBM device, otherwise
-            the result of the job when the backend is a fake backend.
+        Returns (unified_job.Job):
+            A job converted from the jobs from the qiskit's ecosystem. Returning
+            job id or qiskit runtime job is deprecated.
+            
         '''
         raise NotImplementedError()
 
@@ -213,11 +182,23 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
         This method is decorated by the metaclass. The result will be cached if
         this method successfully gets the result.
         '''
-        job_id_or_result = self.submit_job()
+        job_or_id_or_result = self.submit_job()
+        if isinstance(job_or_id_or_result, unified_job.Job):
+            job = job_or_id_or_result
+            if job.result is not None:
+                return job.result
+            runtime_job = get_service().job(job.id)
+            if not runtime_job.done():
+                raise RetrieveJobError(f'The job is in the status: {runtime_job.status()}',
+                                   job.id)
+            # TODO: update `job.result` in the cache
+            return runtime_job.result()
+        
+        # below is for backward compatibility
         if self.is_fake_backend():
-            job_result = job_id_or_result
+            job_result = job_or_id_or_result
             return job_result
-        job_id = job_id_or_result
+        job_id = job_or_id_or_result
         job = get_service().job(job_id)
         status = job.status()
         if status != "DONE":

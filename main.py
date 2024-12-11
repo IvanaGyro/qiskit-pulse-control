@@ -8,6 +8,8 @@ from qiskit.primitives import SamplerPubResult, BitArray
 from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
+
+from qiskit_pulse_control import unified_job
 from qiskit_pulse_control import meta
 
 
@@ -50,10 +52,7 @@ class GaussianPulseCalibration(meta.QiskitTask):
         ]
         sampler = SamplerV2(mode=backend)
         job = sampler.run(circuits)
-        if self.is_fake_backend():
-            return job.result()
-        else:
-            return job.job_id()
+        return unified_job.Job(job)
 
     def post_process(self, result):
         for circuit_result, (amplitude, sigma) in zip(result,
@@ -106,10 +105,7 @@ class CompareDragAndGaussian(meta.QiskitTask):
         circuits = [circuit_with_gaussion, circuit_with_drag, circuit_with_x]
         sampler = SamplerV2(mode=backend)
         job = sampler.run(circuits)
-        if self.is_fake_backend():
-            return job.result()
-        else:
-            return job.job_id()
+        return unified_job.Job(job)
 
     def post_process(self, result):
 
@@ -149,10 +145,7 @@ class ConcatTwoPulsesToMatchGranularity(meta.QiskitTask):
 
         sampler = SamplerV2(mode=backend)
         job = sampler.run(circuits)
-        if self.is_fake_backend():
-            return job.result()
-        else:
-            return job.job_id()
+        return unified_job.Job(job)
 
     def post_process(self, result):
         print('Can concat two pulses to match the granularity.')
