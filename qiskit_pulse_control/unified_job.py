@@ -19,11 +19,14 @@ class Job:
     '''
 
     @functools.singledispatchmethod
-    def __init__(self, qiskit_job: runtime_job_v2.RuntimeJobV2):
-        self.status = providers.JobStatus[qiskit_job.status()]
-        self.id = qiskit_job.job_id()
-        # expect the job is running or queueing
-        self.result = None
+    def __init__(self, arg):
+        raise TypeError(f'Not supported job type:{type(arg)}',)
+
+    @__init__.register(runtime_job_v2.RuntimeJobV2)
+    def _(self, qiskit_job: runtime_job_v2.RuntimeJobV2):
+        # expect the job is running or queueing, so leave result as `None`
+        self.__init__(
+            providers.JobStatus[qiskit_job.status()], id=qiskit_job.job_id())
 
     @__init__.register(primitive_job.PrimitiveJob)
     def _(self, qiskit_job: primitive_job.PrimitiveJob):
@@ -31,11 +34,10 @@ class Job:
         backend.
         '''
         # Assume the job from the fake backend will finish within a reasonable
-        # time.
-        self.result = qiskit_job.result()
-        self.status = qiskit_job.status()
-        self.id = None
-        assert (self.status == providers.JobStatus.DONE)
+        # time. After getting the result, the job status changes.
+        result = qiskit_job.result()
+        self.__init__(qiskit_job.status(), result=result)
+        assert self.status == providers.JobStatus.DONE
 
     @__init__.register(providers.JobStatus)
     def _(self, status: providers.JobStatus, id: str = None, result=None):
