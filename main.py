@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 
+from qiskit_pulse_control import service
 from qiskit_pulse_control import unified_job
 from qiskit_pulse_control import meta
 
@@ -45,7 +46,7 @@ class GaussianPulseCalibration(meta.QiskitTask):
             return qc
 
     def submit_job(self):
-        backend = meta.get_service().backend(self.backend)
+        backend = service.get_service().backend(self.backend)
         circuits = [
             self.build_circuit(backend, amplitude, sigma)
             for amplitude, sigma in self.gaussian_parameters
@@ -72,7 +73,7 @@ class CompareDragAndGaussian(meta.QiskitTask):
     angle: float = 0.0
 
     def submit_job(self):
-        backend = meta.get_service().backend(self.backend)
+        backend = meta.get_backend(self.backend)
 
         circuit_with_gaussion = QuantumCircuit(1, 1)
         with pulse.build(backend) as gate_pulse:
@@ -125,7 +126,7 @@ class ConcatTwoPulsesToMatchGranularity(meta.QiskitTask):
     '''
 
     def submit_job(self):
-        backend = meta.get_service().backend('ibm_sherbrooke')
+        backend = service.get_service().backend('ibm_sherbrooke')
         qc = QuantumCircuit(1, 1)
         with pulse.build(backend) as gate_pulse:
             pulse1 = Gaussian(duration=42, amp=1.0, sigma=32)
@@ -152,7 +153,7 @@ class ConcatTwoPulsesToMatchGranularity(meta.QiskitTask):
 
 
 def main():
-    meta.set_token('MY_TOKEN')
+    service.set_token('MY_TOKEN')
 
     # GaussianPulseCalibration('ibm_sherbrooke',
     #                          amplitudes=[0.5, 0.75, 1],

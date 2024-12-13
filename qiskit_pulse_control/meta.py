@@ -9,6 +9,7 @@ from klepto.keymaps import hashmap, picklemap
 from klepto.safe import no_cache
 import qiskit_ibm_runtime
 
+from qiskit_pulse_control import service
 from qiskit_pulse_control import unified_job
 
 # Without setting the algorithm, klepto uses Python's built-in hash(), which
@@ -23,33 +24,12 @@ stable_keymap = picklemap(serializer=dill) + hashmap(algorithm='md5')
 
 CACHE_DIR = pathlib.Path('cache')
 
-service = None
-_token = None
-
-def set_token(token: str):
-    global _token
-    _token = token
-
-
-def get_service(channel='ibm_quantum'):
-    if channel == 'local':
-        # Getting a local service is quick, so there is no need to cache.
-        return qiskit_ibm_runtime.QiskitRuntimeService(channel='local')
-    global service
-    if service is None:
-        if _token is None:
-            raise RuntimeError(
-                'Please call set_token() before getting a service.')
-        service = qiskit_ibm_runtime.QiskitRuntimeService(
-            instance='ibm-q/open/main', channel=channel, token=_token)
-    return service
-
 
 def get_backend(backend_name: str):
     if backend_name.startswith('fake_'):
-        return get_service('local').backend(backend_name)
+        return service.get_service('local').backend(backend_name)
     if backend_name.startswith('ibm_'):
-        return get_service().backend(backend_name)
+        return service.get_service().backend(backend_name)
     raise ValueError(f'invalid backend name:{backend_name}')
 
 
@@ -187,7 +167,7 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
             job = job_or_id_or_result
             if job.result is not None:
                 return job.result
-            runtime_job = get_service().job(job.id)
+            runtime_job = service.get_service().job(job.id)
             if not runtime_job.done():
                 raise RetrieveJobError(f'The job is in the status: {runtime_job.status()}',
                                    job.id)
@@ -199,7 +179,7 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
             job_result = job_or_id_or_result
             return job_result
         job_id = job_or_id_or_result
-        job = get_service().job(job_id)
+        job = service.get_service().job(job_id)
         status = job.status()
         if status != "DONE":
             raise RetrieveJobError(f'The job is in the status: {status}',
