@@ -166,13 +166,13 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
         if isinstance(job_or_id_or_result, unified_job.Job):
             job = job_or_id_or_result
             if job.result is not None:
-                return job.result
-            runtime_job = service.get_service().job(job.id)
-            if not runtime_job.done():
-                raise RetrieveJobError(f'The job is in the status: {runtime_job.status()}',
-                                   job.id)
+                return unified_job.JobResult(job.result)
+            if not job.runtime_job.done():
+                raise RetrieveJobError(
+                    f'The job is in the status: {job.runtime_job.status()}',
+                    job.id)
             # TODO: update `job.result` in the cache
-            return runtime_job.result()
+            return job.runtime_job.result()
         
         # below is for backward compatibility
         if self.is_fake_backend():

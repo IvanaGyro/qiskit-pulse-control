@@ -4,6 +4,8 @@ from qiskit import providers
 from qiskit.primitives import primitive_job
 from qiskit_ibm_runtime import runtime_job_v2
 
+from qiskit_pulse_control import service
+
 
 class Job:
     '''A wrapper for qiskit's job
@@ -27,6 +29,7 @@ class Job:
         # expect the job is running or queueing, so leave result as `None`
         self.__init__(
             providers.JobStatus[qiskit_job.status()], id=qiskit_job.job_id())
+        self._runtime_job = qiskit_job
 
     @__init__.register(primitive_job.PrimitiveJob)
     def _(self, qiskit_job: primitive_job.PrimitiveJob):
@@ -44,3 +47,15 @@ class Job:
         self.status = status
         self.id = id
         self.result = result
+        self._runtime_job = None
+
+    @property
+    def runtime_job(self):
+        if self._runtime_job is not None:
+            return self._runtime_job
+        if self.id is None:
+            raise ValueError(
+                'This Job is not a wrapper of a qiskit runtime job.')
+        self._runtime_job = service.get_service().job(self.id)
+        return self._runtime_job
+
