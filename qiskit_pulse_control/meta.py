@@ -2,11 +2,13 @@ import abc
 import dataclasses
 import inspect
 import pathlib
+from typing import Union
 
 import dill
 from klepto.archives import dir_archive
 from klepto.keymaps import hashmap, picklemap
 from klepto.safe import no_cache
+from qiskit_experiments import framework
 import qiskit_ibm_runtime
 
 from qiskit_pulse_control import service
@@ -130,15 +132,18 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
     backend: str
 
     @abc.abstractmethod
-    def submit_job(self) -> str | qiskit_ibm_runtime.RuntimeJobV2 | unified_job.Job:
+    def submit_job(
+        self
+    ) -> Union[str, qiskit_ibm_runtime.RuntimeJobV2, unified_job.Job,
+               unified_job.ExperimentJob]:
         '''Create a qiskit job and send it to IBMQ
 
         You must implement this method.
 
-        Returns (unified_job.Job):
-            A job converted from the jobs from the qiskit's ecosystem. Returning
-            job id or qiskit runtime job is deprecated.
-            
+        Returns (unified_job.Job | unified_job.ExperimentJob):
+            A job converted from the jobs from the qiskit's ecosystem or a job
+            wrapping an instance of `qiskit_experiments.framework.ExperimentData`.
+            Returning a job id or a qiskit runtime job is deprecated. 
         '''
         raise NotImplementedError()
 
@@ -163,6 +168,7 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
         this method successfully gets the result.
         '''
         job_or_id_or_result = self.submit_job()
+
         if isinstance(job_or_id_or_result, unified_job.Job):
             job = job_or_id_or_result
             if job.result is not None:
@@ -172,8 +178,20 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
                     f'The job is in the status: {job.runtime_job.status()}',
                     job.id)
             # TODO: update `job.result` in the cache
-            return job.runtime_job.result()
-        
+            return unified_job.JobResult(job.runtime_job.result())
+
+        if isinstance(job_or_id_or_result, unified_job.ExperimentJob):
+            experiment = job_or_id_or_result
+            if experiment.analysis_result is not None:
+                return unified_job.ExperimentResult(experiment.analysis_result)
+            status = experiment.experiment_data.status()
+            if not status == framework.ExperimentStatus.DONE:
+                raise RetrieveJobError(
+                    f'The experiment is in the status: {status}',
+                    experiment.jobs[0].id)
+            return unified_job.ExperimentResult(
+                experiment.experiment_data.analysis_results())
+
         # below is for backward compatibility
         if self.is_fake_backend():
             job_result = job_or_id_or_result
@@ -208,7 +226,11 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
         except RetrieveJobError as e:
             # TODO: Show the error message of the job which status is "ERROR".
             print(e)
+            return
+        if isinstance(result, unified_job.Result):
+            self.post_process(result.value)
         else:
+            # TODO: This is for backward compability. Remove this.
             self.post_process(result)
 
     def is_fake_backend(self) -> bool:

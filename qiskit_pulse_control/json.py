@@ -3,29 +3,58 @@ import json
 from typing import Any
 
 from qiskit import providers
+from qiskit_experiments import framework
 import qiskit_ibm_runtime
 
 from qiskit_pulse_control import unified_job
 
 
-class JobAndQiskitRuntimeEncoder(qiskit_ibm_runtime.RuntimeEncoder):
+class JobAndQiskitRuntimeEncoder(json.JSONEncoder):
     '''JSON encoder for encoding `job.Job` and qiskit's job result.'''
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._qiskit_runtime_encoder = qiskit_ibm_runtime.RuntimeEncoder()
+        self._experiment_encoder = framework.ExperimentEncoder()
 
     def default(self, any_object: Any) -> Any:
         if isinstance(any_object, unified_job.Job):
-            return {
-                '__type__': 'job',
-                '__value__': {
-                    'status':
-                        any_object.status.name,
-                    'id':
-                        any_object.id,
-                    'result':
-                        super().default(any_object.result)
-                        if any_object.result is not None else None
-                }
+            return self._encode_job(any_object)
+        if isinstance(any_object, unified_job.ExperimentJob):
+            encoded_value = {
+                'jobs': [self._encode_job(job) for job in any_object.jobs],
+                'experiment':
+                    self._experiment_encoder.encode(any_object.experiment),
             }
-        return super().default(any_object)
+            if any_object.analysis_result is not None:
+                analysis_result = self._experiment_encoder.encode(
+                    any_object.analysis_result)
+                encoded_value['analysis_result'] = analysis_result
+            return {'__type__': 'experiment', '__value__': encoded_value}
+        if isinstance(any_object, unified_job.JobResult):
+            return {
+                '__type__':
+                    'JobResult',
+                '__value__':
+                    self._qiskit_runtime_encoder.encode(any_object.value),
+            }
+        if isinstance(any_object, unified_job.ExperimentResult):
+            return {
+                '__type__': 'ExperimentResult',
+                '__value__': self._experiment_encoder.encode(any_object.value),
+            }
+        return self._qiskit_runtime_encoder.default(any_object)
+
+    def _encode_job(self, job: unified_job.Job):
+        encoded_value = {
+            'status': job.status.name,
+        }
+        if job.id is not None:
+            encoded_value['id'] = job.id
+        if job.result is not None:
+            encoded_value['result'] = self._qiskit_runtime_encoder.encode(
+                job.result)
+        return {'__type__': 'job', '__value__': encoded_value}
 
 
 class JobAndQiskitRuntimeDecoder(json.JSONDecoder):
@@ -34,16 +63,46 @@ class JobAndQiskitRuntimeDecoder(json.JSONDecoder):
     def __init__(self, *, object_hook: Callable = None, **kwargs):
         self._previous_object_hook = object_hook
         self._qiskit_runtime_decoder = qiskit_ibm_runtime.RuntimeDecoder()
+        self._experiment_decoder = framework.ExperimentDecoder()
         super().__init__(object_hook=self.object_hook, **kwargs)
 
     def object_hook(self, any_object: Any) -> Any:
         if self._previous_object_hook is not None:
             any_object = self._previous_object_hook(any_object)
-        if getattr(any_object, '__type__', None) == 'job':
-            value = any_object['__value__']
-            return unified_job.Job(
-                providers.JobStatus[value['status']], value['id'], value['result'])
+        if not isinstance(any_object, dict) or '__type__' not in any_object:
+            return any_object
+
+        type_name = any_object['__type__']
+        value: dict = any_object['__value__']
+        if type_name == 'job':
+            return self._decode_job(value)
+        if type_name == 'experiment':
+            jobs = [
+                self._decode_job(encoded_job) for encoded_job in value['jobs']
+            ]
+            experiment = self._experiment_decoder.decode(value['experiment'])
+            analysis_result = None
+            if 'analysis_result' in value:
+                analysis_result = self._experiment_decoder.decode(
+                    value['analysis_result'])
+            return unified_job.ExperimentJob(jobs, experiment, analysis_result)
+        if type_name == 'JobResult':
+            return unified_job.JobResult(
+                self._qiskit_runtime_decoder.decode(value))
+        if type_name == 'ExperimentResult':
+            return unified_job.ExperimentResult(
+                self._experiment_decoder.decode(value))
+        # TODO: backward compability, return `any_object` instead
         return self._qiskit_runtime_decoder.object_hook(any_object)
+
+    def _decode_job(self, encoded_job: dict) -> unified_job.Job:
+        result = encoded_job.get('result')
+        if isinstance(result, str):
+            # TODO: backward compability, encoded_job['result'] should always be
+            # a string
+            result = self._qiskit_runtime_decoder.decode(result)
+        return unified_job.Job(providers.JobStatus[encoded_job['status']],
+                               encoded_job.get('id'), result)
 
 
 def patch_json():

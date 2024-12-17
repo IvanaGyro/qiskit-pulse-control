@@ -4,6 +4,8 @@ from qiskit.circuit import Gate
 from qiskit.circuit import QuantumCircuit
 from qiskit import pulse
 from qiskit.primitives import SamplerPubResult, BitArray
+import qiskit_experiments
+import numpy as np
 
 from dataclasses import dataclass
 
@@ -152,6 +154,35 @@ class ConcatTwoPulsesToMatchGranularity(meta.QiskitTask):
         print('Can concat two pulses to match the granularity.')
 
 
+@dataclass
+class TomographyOfXateSeries(meta.QiskitTask):
+    x_gate_count: int
+    physical_qubit: int
+
+    def submit_job(self):
+        print('TomographyOfXateSeries.submit_job')
+        backend = meta.get_backend(self.backend)
+        circuit = QuantumCircuit(1, 1)
+        for _ in range(self.x_gate_count):
+            circuit.x(0)
+        experiment_data = qiskit_experiments.library.StateTomography(
+            circuit, physical_qubits=(self.physical_qubit,)).run(
+                backend, seed_simulation=100)
+        return unified_job.ExperimentJob(experiment_data)
+
+    def post_process(self,
+                     result: list[qiskit_experiments.framework.AnalysisResult]):
+        for analysis_result in result:
+            if analysis_result.name == 'state':
+                density_matrix: np.typing.NDArray[
+                    np.float64] = analysis_result.value.data
+                break
+        x = 2 * np.real(density_matrix[1][0])
+        y = 2 * np.imag(density_matrix[1][0])
+        z = 2 * np.real(density_matrix[0][0]) - 1
+        print(f'Bloch vector:{(x, y, z)}')
+
+
 def main():
     service.set_token('MY_TOKEN')
 
@@ -174,10 +205,14 @@ def main():
     #                        beta=3.279359125685733,
     #                        angle=0.0).run()
 
-    sigmas = [31 + i * 0.1 for i in range(20)] + [52 + i * 0.1 for i in range(20)]
-    GaussianPulseCalibration('ibm_sherbrooke', amplitudes=[1], sigmas=sigmas).run()
+    # sigmas = [31 + i * 0.1 for i in range(20)] + [52 + i * 0.1 for i in range(20)]
+    # GaussianPulseCalibration('ibm_sherbrooke', amplitudes=[1], sigmas=sigmas).run()
 
     # ConcatTwoPulsesToMatchGranularity().run()
+
+    TomographyOfXateSeries(
+        'fake_sherbrooke', x_gate_count=5, physical_qubit=5).run()
+
 
 if __name__ == '__main__':
     main()
