@@ -109,7 +109,6 @@ class ExperimentJob:
             return self._experiment_data
         self._experiment_data = framework.ExperimentData(
             experiment=self.experiment)
-        # TODO: check if the runtime jobs is done
         if all(job.status == providers.JobStatus.DONE for job in self.jobs):
             for job in self.jobs:
                 # .add_data() cannot handle PrimitiveResult. The `job_id`
@@ -124,6 +123,11 @@ class ExperimentJob:
             for job in self.jobs:
                 self._experiment_data.add_jobs(
                     [job.runtime_job for job in self.jobs])
+            if (self._experiment_data.status() ==
+                    framework.ExperimentStatus.DONE):
+                self.experiment.analysis.run(
+                    self._experiment_data, replace_results=True)
+                self.analysis_result = self._experiment_data.analysis_results()
         return self._experiment_data
 
 

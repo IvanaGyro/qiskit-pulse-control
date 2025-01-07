@@ -1,4 +1,5 @@
 from collections.abc import Callable
+import collections
 import json
 from typing import Any
 
@@ -21,6 +22,13 @@ class JobAndQiskitRuntimeEncoder(json.JSONEncoder):
         if isinstance(any_object, unified_job.Job):
             return self._encode_job(any_object)
         if isinstance(any_object, unified_job.ExperimentJob):
+            # fix https://github.com/qiskit-community/qiskit-experiments/issues/1508
+            copied_experiment = any_object.experiment.copy()
+            experiment_kwargs = getattr(copied_experiment, '__init_kwargs__',
+                                        collections.OrderedDict())
+            if 'backend' in experiment_kwargs:
+                del experiment_kwargs['backend']
+
             encoded_value = {
                 'jobs': [self._encode_job(job) for job in any_object.jobs],
                 'experiment':
