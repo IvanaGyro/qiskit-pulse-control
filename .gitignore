@@ -1,5 +1,6 @@
-# cache
+# This project
 cache/
+images/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
