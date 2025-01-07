@@ -345,6 +345,27 @@ class TomographyOfXateSeries(meta.QiskitTask):
         print(f'Bloch vector:{(x, y, z)}')
 
 
+@dataclass
+class RamseyCharacterization(meta.QiskitTask):
+    delays: list[float]
+    frequency_shift: float
+    physical_qubit: int
+
+    def submit_job(self):
+        backend = meta.get_backend(self.backend)
+        experiment = qiskit_experiments.library.T2Ramsey(
+            physical_qubits=(self.physical_qubit,),
+            delays=self.delays,
+            backend=backend,
+            osc_freq=self.frequency_shift)
+        return unified_job.ExperimentJob(experiment.run())
+
+    def post_process(self,
+                     result: list[qiskit_experiments.framework.AnalysisResult]):
+        for r in result:
+            print(r)
+        print(f'frequency shift:{result[1].value:.10f} Hz')
+
 def main():
     service.set_token('MY_TOKEN')
 
@@ -367,29 +388,45 @@ def main():
     #                        beta=3.279359125685733,
     #                        angle=0.0).run()
 
-    # sigmas = [31 + i * 0.1 for i in range(20)] + [52 + i * 0.1 for i in range(20)]
-    # GaussianPulseCalibration('ibm_sherbrooke', amplitudes=[1], sigmas=sigmas).run()
+    # sigmas = [31 + i * 0.1 for i in range(20)
+    #          ] + [52 + i * 0.1 for i in range(20)]
+    # GaussianPulseCalibration(
+    #     'ibm_sherbrooke', amplitudes=[1], sigmas=sigmas).run()
 
     # ConcatTwoPulsesToMatchGranularity().run()
 
     # TomographyOfXateSeries(
     #     'fake_sherbrooke', x_gate_count=5, physical_qubit=5).run()
 
-    RabiScanAmplitudes(
+    # RabiScanAmplitudes(
+    #     'ibm_sherbrooke',
+    #     amplitudes=[0.03 * i for i in range(1, 26)],
+    #     sigma=52.,
+    #     physical_qubit=0).run()
+    # RabiScanAmplitudes(
+    #     'ibm_sherbrooke',
+    #     amplitudes=[0.03 * i for i in range(1, 26)],
+    #     sigma=64.,
+    #     physical_qubit=0).run()
+    # RabiScanAmplitudes(
+    #     'ibm_sherbrooke',
+    #     amplitudes=[0.03 * i for i in range(1, 26)],
+    #     sigma=47.,
+    #     physical_qubit=0).run()
+
+    # RamseyCharacterization(
+    #     'ibm_sherbrooke',
+    #     delays=list(np.arange(1.00e-6, 50.0e-6, 2.00e-6)),
+    #     frequency_shift=0.0,
+    #     physical_qubit=0,
+    # ).run()
+    RamseyCharacterization(
         'ibm_sherbrooke',
-        amplitudes=[0.03 * i for i in range(1, 26)],
-        sigma=52.,
-        physical_qubit=0).run()
-    RabiScanAmplitudes(
-        'ibm_sherbrooke',
-        amplitudes=[0.03 * i for i in range(1, 26)],
-        sigma=64.,
-        physical_qubit=0).run()
-    RabiScanAmplitudes(
-        'ibm_sherbrooke',
-        amplitudes=[0.03 * i for i in range(1, 26)],
-        sigma=47.,
-        physical_qubit=0).run()
+        delays=list(np.arange(1.00e-6, 50.0e-6, 5.00e-7)),
+        frequency_shift=0.0,
+        physical_qubit=0,
+    ).run()
+    plt.show()
 
 
 if __name__ == '__main__':
