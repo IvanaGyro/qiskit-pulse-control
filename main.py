@@ -8,6 +8,7 @@ import qiskit_experiments
 import numpy as np
 from scipy import optimize
 import math
+import collections
 
 from dataclasses import dataclass
 
@@ -59,13 +60,76 @@ class GaussianPulseCalibration(meta.QiskitTask):
         job = sampler.run(circuits)
         return unified_job.Job(job)
 
+    def _plot_fitting_figure(self, amplitude: float, sigmas: list[float],
+                             proportions: list[float]):
+        points = sorted(zip(proportions, sigmas))
+        guess_max = points[0][0]
+        guess_min = points[-1][0]
+        guess_amplitude = (guess_max - guess_min) / 2
+        guess_base = (guess_max + guess_min) / 2
+        # XXX: not a good guess
+        guess_period = points[1][1] - points[0][1]
+        guess_period = 21.0
+        cos_curve = lambda x, amplitude, base, period, phase: amplitude * np.cos(
+            2 * math.pi * x / period + phase) + base
+        fit_result = optimize.curve_fit(
+            cos_curve,
+            sigmas,
+            proportions,
+            p0=[guess_amplitude, guess_base, guess_period, 0],
+            maxfev=100000,
+        )
+
+        curve_parameters, pcov = fit_result
+        errors = np.sqrt(np.diag(pcov))
+
+        x_fit = np.linspace(min(sigmas), max(sigmas), 100)
+        y_fit = cos_curve(x_fit, *curve_parameters)
+
+        # Create the plot
+        plt.figure(figsize=(8, 6))
+        plt.scatter(sigmas, proportions, color='blue', label='Data Points')
+        plt.plot(x_fit, y_fit, color='red', label='Fitted Curve')
+        plt.title(rf'Gaussian Pulse, $amplitude = {amplitude}$')
+        plt.xlabel('Sigma')
+        plt.ylabel(r'Proportion of $|1\rangle$')
+
+        ax = plt.gca()
+        ax.text(
+            0.5,
+            -0.15,
+            rf'period = {curve_parameters[2]:.3f} $\pm$ {errors[2]:.3f}',
+            fontsize=12,
+            verticalalignment='top',
+            horizontalalignment='center',
+            transform=ax.transAxes,
+            bbox={
+                'boxstyle': 'square',
+                'facecolor': (0, 0, 0, 0),
+            })
+
+        plt.tight_layout()
+        plt.show()
+
     def post_process(self, result):
+        grouped_points = collections.defaultdict(lambda: {
+            'sigma': [],
+            'proportion': []
+        })
         for circuit_result, (amplitude, sigma) in zip(result,
                                                       self.gaussian_parameters):
             bitarray: BitArray = circuit_result.data['c']
-            population = bitarray.get_int_counts()[1] / bitarray.num_shots
+            proportion = bitarray.get_int_counts()[1] / bitarray.num_shots
+            grouped_points[amplitude]['sigma'].append(sigma)
+            grouped_points[amplitude]['proportion'].append(proportion)
             print(
-                f'sigma:{sigma} amplitude:{amplitude} population:{population}')
+                f'sigma:{sigma} amplitude:{amplitude} proportion:{proportion}')
+        if len(self.amplitudes) >= len(self.sigmas):
+            # only plot the figures for the task scanning sigmas
+            return
+        for amplitude, points in grouped_points.items():
+            self._plot_fitting_figure(amplitude, points['sigma'],
+                                      points['proportion'])
 
 
 @dataclass
