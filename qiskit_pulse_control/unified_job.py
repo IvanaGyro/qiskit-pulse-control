@@ -63,6 +63,7 @@ class Job:
         self._runtime_job = service.get_service().job(self.id)
         return self._runtime_job
 
+
 class ExperimentJob:
     '''A wrapper for qiskit_experiments' experiment
 
@@ -83,6 +84,7 @@ class ExperimentJob:
     def __init__(self, experiment_data: framework.ExperimentData):
         self.jobs = [Job(j) for j in experiment_data.jobs()]
         self.experiment = experiment_data.experiment
+        self.analysis_result = None
         if all(job.status == providers.JobStatus.DONE for job in self.jobs):
             self.analysis_result = experiment_data.analysis_results()
         self._experiment_data = experiment_data
@@ -96,6 +98,7 @@ class ExperimentJob:
         self.jobs = jobs
         self.experiment = experiment
         self.analysis_result = analysis_result
+        self._experiment_data = None
 
     @property
     def experiment_data(self) -> framework.ExperimentData:

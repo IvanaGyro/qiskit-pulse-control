@@ -77,9 +77,7 @@ class JobAndQiskitRuntimeDecoder(json.JSONDecoder):
         if type_name == 'job':
             return self._decode_job(value)
         if type_name == 'experiment':
-            jobs = [
-                self._decode_job(encoded_job) for encoded_job in value['jobs']
-            ]
+            jobs = value['jobs']
             experiment = self._experiment_decoder.decode(value['experiment'])
             analysis_result = None
             if 'analysis_result' in value:
