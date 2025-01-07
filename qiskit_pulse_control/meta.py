@@ -167,30 +167,18 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
         This method is decorated by the metaclass. The result will be cached if
         this method successfully gets the result.
         '''
+
+        def is_unified_job(any_object):
+            return (isinstance(any_object, unified_job.Job) or
+                    isinstance(any_object, unified_job.ExperimentJob))
+
         job_or_id_or_result = self.submit_job()
-
-        if isinstance(job_or_id_or_result, unified_job.Job):
-            job = job_or_id_or_result
-            if job.result is not None:
-                return unified_job.JobResult(job.result)
-            if not job.runtime_job.done():
-                raise RetrieveJobError(
-                    f'The job is in the status: {job.runtime_job.status()}',
-                    job.id)
-            # TODO: update `job.result` in the cache
-            return unified_job.JobResult(job.runtime_job.result())
-
-        if isinstance(job_or_id_or_result, unified_job.ExperimentJob):
-            experiment = job_or_id_or_result
-            if experiment.analysis_result is not None:
-                return unified_job.ExperimentResult(experiment.analysis_result)
-            status = experiment.experiment_data.status()
-            if not status == framework.ExperimentStatus.DONE:
-                raise RetrieveJobError(
-                    f'The experiment is in the status: {status}',
-                    experiment.jobs[0].id)
-            return unified_job.ExperimentResult(
-                experiment.experiment_data.analysis_results())
+        if (isinstance(job_or_id_or_result, list) and
+                all(is_unified_job(j) for j in job_or_id_or_result)):
+            jobs = job_or_id_or_result
+            return [self.__result_from_unified_job(j) for j in jobs]
+        if is_unified_job(job_or_id_or_result):
+            return self.__result_from_unified_job(job_or_id_or_result)
 
         # below is for backward compatibility
         if self.is_fake_backend():
@@ -203,6 +191,31 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
             raise RetrieveJobError(f'The job is in the status: {status}',
                                    job_id)
         return job.result()
+
+    def __result_from_unified_job(self, job: unified_job.Job |
+                                  unified_job.ExperimentJob):
+        if isinstance(job, unified_job.Job):
+            if job.result is not None:
+                return unified_job.JobResult(job.result)
+            if not job.runtime_job.done():
+                raise RetrieveJobError(
+                    f'The job is in the status: {job.runtime_job.status()}',
+                    job.id)
+            # TODO: update `job.result` in the cache
+            return unified_job.JobResult(job.runtime_job.result())
+
+        if isinstance(job, unified_job.ExperimentJob):
+            if job.analysis_result is not None:
+                return unified_job.ExperimentResult(job.analysis_result)
+            status = job.experiment_data.status()
+            if not status == framework.ExperimentStatus.DONE:
+                raise RetrieveJobError(
+                    f'The experiment is in the status: {status}',
+                    job.jobs[0].id)
+            return unified_job.ExperimentResult(
+                job.experiment_data.analysis_results())
+
+        assert False
 
     def run(self):
         '''Run the task
@@ -227,7 +240,10 @@ class QiskitTask(metaclass=_QiskitTaskMeta):
             # TODO: Show the error message of the job which status is "ERROR".
             print(e)
             return
-        if isinstance(result, unified_job.Result):
+        if (isinstance(result, list) and
+                all(isinstance(r, unified_job.Result) for r in result)):
+            self.post_process([r.value for r in result])
+        elif isinstance(result, unified_job.Result):
             self.post_process(result.value)
         else:
             # TODO: This is for backward compability. Remove this.
