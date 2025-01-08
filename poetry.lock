@@ -12,6 +12,17 @@ files = [
 ]
 
 [[package]]
+name = "arraylias"
+version = "0.1.1"
+description = "A Python package for aliased function dispatching to multiple array libraries"
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "arraylias-0.1.1-py3-none-any.whl", hash = "sha256:890ef262cd65e03dbca3bd655dac8236f40613ead7b5b4be7f519015142f8482"},
+    {file = "arraylias-0.1.1.tar.gz", hash = "sha256:80678a00a6a716e63379efdad54b9ea6454885021189d6241facd7f3991d5200"},
+]
+
+[[package]]
 name = "asteval"
 version = "1.0.5"
 description = "Safe, minimalistic evaluator of python expression using ast module"
@@ -796,6 +807,17 @@ gmpy = ["gmpy2 (>=2.1.0a4)"]
 tests = ["pytest (>=4.6)"]
 
 [[package]]
+name = "multiset"
+version = "3.2.0"
+description = "An implementation of a multiset."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "multiset-3.2.0-py2.py3-none-any.whl", hash = "sha256:d31c6737f537d326835b55be72d0b2e2cf368c874a58cc87879f349273841a1a"},
+    {file = "multiset-3.2.0.tar.gz", hash = "sha256:7c59a786284b9c339df4f219dcbb4ce5f44d3ac1b20f922636c4d789e89cf7b5"},
+]
+
+[[package]]
 name = "numba"
 version = "0.60.0"
 description = "compiling Python code using LLVM"
@@ -1532,6 +1554,29 @@ qiskit = ">=1.1.0"
 scipy = ">=1.0"
 
 [[package]]
+name = "qiskit-dynamics"
+version = "0.5.1"
+description = "Qiskit ODE solver"
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "qiskit-dynamics-0.5.1.tar.gz", hash = "sha256:63efe284221a9b873dcaefed5d961ed3a2d8dfa975b4ed981538de1dd656c98d"},
+    {file = "qiskit_dynamics-0.5.1-py3-none-any.whl", hash = "sha256:b39a11a63ffe7c12cef1c925f25af705f657f7c57122baeb63790b025b8910aa"},
+]
+
+[package.dependencies]
+arraylias = "*"
+matplotlib = ">=3.0"
+multiset = ">=3.0.1"
+numpy = ">=1.17"
+qiskit = "*"
+scipy = ">=1.4"
+sympy = ">=1.12"
+
+[package.extras]
+jax = ["jax", "jaxlib"]
+
+[[package]]
 name = "qiskit-experiments"
 version = "0.8.0"
 description = "Software for developing quantum computing programs"
@@ -1969,4 +2014,4 @@ test = ["websockets"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "a51b3ee51cfe71f48ac0e8d198c8d846821a34e2174401e602e429adbb9f8971"
+content-hash = "db8ea19deddd229881abb3b4b7a35deb647650f8fd9eae17537f7ff115e5be2d"
