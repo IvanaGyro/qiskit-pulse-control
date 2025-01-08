@@ -3,6 +3,8 @@ from qiskit_ibm_runtime import SamplerV2
 from qiskit.circuit import Gate
 from qiskit.circuit import QuantumCircuit
 from qiskit import pulse
+import qutip
+from matplotlib import animation
 from qiskit.primitives import SamplerPubResult, BitArray
 import qiskit_experiments
 import numpy as np
@@ -278,7 +280,6 @@ class CompareDragAndGaussian(meta.QiskitTask):
             bitarray: BitArray = circuit_result.data['c']
             return bitarray.get_int_counts()[1] / bitarray.num_shots
 
-        print(self)
         print(f'Gaussian: {get_population(result[0])}')
         print(f'Drag: {get_population(result[1])}')
         print(f'X gate: {get_population(result[2])}')
@@ -322,14 +323,13 @@ class TomographyOfXateSeries(meta.QiskitTask):
     physical_qubit: int
 
     def submit_job(self):
-        print('TomographyOfXateSeries.submit_job')
         backend = meta.get_backend(self.backend)
         circuit = QuantumCircuit(1, 1)
         for _ in range(self.x_gate_count):
             circuit.x(0)
         experiment_data = qiskit_experiments.library.StateTomography(
-            circuit, physical_qubits=(self.physical_qubit,)).run(
-                backend, seed_simulation=100)
+            circuit, physical_qubits=(self.physical_qubit,)).run(backend)
+        print(f'submit TomographyOfXateSeries x_gate_count:{self.x_gate_count}')
         return unified_job.ExperimentJob(experiment_data)
 
     def post_process(self,
@@ -343,6 +343,72 @@ class TomographyOfXateSeries(meta.QiskitTask):
         y = 2 * np.imag(density_matrix[1][0])
         z = 2 * np.real(density_matrix[0][0]) - 1
         print(f'Bloch vector:{(x, y, z)}')
+
+
+@dataclass
+class TrajectoryOfXgateSeries(meta.QiskitTask):
+    x_gate_counts: list[int]
+    physical_qubit: int
+
+    def submit_job(self):
+        xx_seriese_tomography_jobs = [
+            TomographyOfXateSeries(self.backend, c,
+                                   self.physical_qubit).submit_job()
+            for c in self.x_gate_counts
+        ]
+        return xx_seriese_tomography_jobs
+
+    def post_process(
+            self,
+            result: list[list[qiskit_experiments.framework.AnalysisResult]]):
+        xs = []
+        ys = []
+        zs = []
+        rs = []
+        for analysis_results in result:
+            density_matrix: np.typing.NDArray[np.float64] = None
+            for analysis_result in analysis_results:
+                if analysis_result.name == 'state':
+                    density_matrix = analysis_result.value.data
+                    break
+            if density_matrix is None:
+                raise ValueError(
+                    'The analysis result does not contain the density matrix.')
+            x = 2 * np.real(density_matrix[1][0])
+            y = 2 * np.imag(density_matrix[1][0])
+            z = 2 * np.real(density_matrix[0][0]) - 1
+            xs.append(x)
+            ys.append(y)
+            zs.append(z)
+            rs.append((x**2 + y**2 + z**2)**0.5)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(azim=-40, elev=30, projection='3d')
+        sphere = qutip.Bloch(axes=ax)
+
+        def animate(i):
+            sphere.clear()
+            sphere.add_vectors([xs[i], ys[i], zs[i]], ['r'])
+            sphere.add_points([xs[:i + 1], ys[:i + 1], zs[:i + 1]])
+            sphere.make_sphere()
+            return ax
+
+        ani = animation.FuncAnimation(
+            fig, animate, range(len(xs)), blit=False, repeat=False)
+        ani.save(
+            f'x_series_trajectory-{self.x_gate_counts[0]}_{self.x_gate_counts[-1]}.gif',
+            fps=12)
+
+        # Create the line plot
+        plt.plot(self.x_gate_counts, rs)
+
+        # Add titles and labels for clarity
+        plt.title('Trajectory Of X-gate Series')
+        plt.xlabel('x-gate count')
+        plt.ylabel('bloch vector length')
+
+        # Display the plot
+        plt.show()
 
 
 @dataclass
@@ -420,12 +486,24 @@ def main():
     #     frequency_shift=0.0,
     #     physical_qubit=0,
     # ).run()
-    RamseyCharacterization(
-        'ibm_sherbrooke',
-        delays=list(np.arange(1.00e-6, 50.0e-6, 5.00e-7)),
-        frequency_shift=0.0,
-        physical_qubit=0,
-    ).run()
+
+    # RamseyCharacterization(
+    #     'ibm_sherbrooke',
+    #     delays=list(np.arange(1.00e-6, 50.0e-6, 5.00e-7)),
+    #     frequency_shift=0.0,
+    #     physical_qubit=0,
+    # ).run()
+
+    # TrajectoryOfXgateSeries(
+    #     'fake_sherbrooke',
+    #     x_gate_counts=list(range(0, 25, 1)),
+    #     physical_qubit=1).run()
+
+    # TrajectoryOfXgateSeries(
+    #     'fake_sherbrooke',
+    #     x_gate_counts=list(range(0, 1001, 2)),
+    #     physical_qubit=1).run()
+
     plt.show()
 
 
