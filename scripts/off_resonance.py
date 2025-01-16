@@ -683,6 +683,8 @@ def calibrate_x_pulse(qubit_frequency: float = 4.6,
     z_data = np.zeros((n_times,))
     r_data = np.zeros((n_times,))
 
+    previous_sign = 1
+    previous_i = 0
     for t_i, sol_t in enumerate(sol.y):
         rotation_matrix = sol_t
         # rotation_matrix = solver.model.rotating_frame.state_out_of_frame(
@@ -693,8 +695,10 @@ def calibrate_x_pulse(qubit_frequency: float = 4.6,
         i = np.real(rotation_matrix[0][0] + rotation_matrix[1][1]) / 2
         # XXX: This restrict the rotation angle lower than pi. Why do we need
         #   to do this correction? Is this correction valid?
-        if i < 0:
+        if abs(previous_i) > 0.1 and i * previous_sign < 0:
             x, y, z, i = -x, -y, -z, -i
+        previous_i = i
+        previous_sign = 1 if i >= 0 else -1
         # final_state = sol_t.data
         # x = -np.imag(final_state[1])
         # y = np.real(final_state[1])
