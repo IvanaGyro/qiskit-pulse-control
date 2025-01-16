@@ -804,6 +804,63 @@ def draw_pulse_signal():
     plt.show()
 
 
+def plot_rabi_frequencies():
+    drive_frequencies = []
+    amplitudes = []
+    xs = []
+    ys = []
+    zs = []
+    angles = []
+    for key, pulse_final in gaussian_x_pi_pulse_amplitudes.items():
+        _, drive_frequency, _ = key
+        if not pulse_final.is_good:
+            continue
+        drive_frequencies.append(drive_frequency - 4.6)
+        amplitudes.append(pulse_final.amplitude)
+        xs.append(pulse_final.axis_x)
+        ys.append(pulse_final.axis_y)
+        zs.append(pulse_final.axis_z)
+        angles.append(pulse_final.angle)
+
+    fig, (ax0, ax1, ax2, ax3, ax4) = plt.subplots(nrows=5, figsize=(10, 30))
+
+    ax0.set_xscale('symlog')
+    ax0.set_xlabel('off resonance (Hz)')
+    ax0.set_ylabel('amplitudes')
+    ax0.grid()
+    ax0.xaxis.grid(which='minor')
+    ax0.scatter(drive_frequencies, amplitudes)
+
+    ax1.set_xscale('symlog')
+    ax1.set_xlabel('off resonance (GHz)')
+    ax1.set_ylabel('x')
+    ax1.grid()
+    ax1.xaxis.grid(which='minor')
+    ax1.scatter(drive_frequencies, xs)
+
+    ax2.set_xscale('symlog')
+    ax2.set_xlabel('off resonance (GHz)')
+    ax2.set_ylabel('y')
+    ax2.grid()
+    ax2.xaxis.grid(which='minor')
+    ax2.scatter(drive_frequencies, ys)
+
+    ax3.set_xscale('symlog')
+    ax3.set_xlabel('off resonance (GHz)')
+    ax3.set_ylabel('z')
+    ax3.grid()
+    ax3.xaxis.grid(which='minor')
+    ax3.scatter(drive_frequencies, zs)
+
+    ax4.set_xscale('symlog')
+    ax4.set_xlabel('off resonance (GHz)')
+    ax4.set_ylabel('angle(rads)')
+    ax4.grid()
+    ax4.xaxis.grid(which='minor')
+    ax4.scatter(drive_frequencies, angles)
+    fig.savefig(IMAGE_DIR / 'simulation-x_gate-off_resonance.png')
+
+
 def main():
     qubit_frequency = 4.6
     omega = 0.6
@@ -821,4 +878,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    plot_rabi_frequencies()
