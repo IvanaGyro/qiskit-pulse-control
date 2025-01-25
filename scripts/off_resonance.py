@@ -1,10 +1,14 @@
 import pathlib
 
 from matplotlib import animation
+from klepto import archives
 import dataclasses
+from klepto import keymaps
 import qiskit.quantum_info
+import qiskit_dynamics.arraylias
 from scipy.integrate._ivp import ivp
 import numpy as np
+import numpy.typing
 from scipy import optimize
 from qiskit.circuit import parameter
 import matplotlib.pyplot as plt
@@ -14,8 +18,10 @@ import qiskit_dynamics
 import qiskit_dynamics.pulse
 from qiskit import quantum_info
 import qutip
+from klepto import safe
 
 IMAGE_DIR = pathlib.Path('images')
+CACHE_DIR = pathlib.Path('cache')
 
 
 @dataclasses.dataclass
@@ -482,7 +488,6 @@ def simulate_two_level():
 
 def find_rabi_rate(solver: qiskit_dynamics.Solver,
                    schedule: qiskit.pulse.ScheduleBlock,
-                   converter: qiskit_dynamics.pulse.InstructionToSignals,
                    amplitude_parameter: parameter.Parameter,
                    filename: str = None) -> float:
     '''Find Rabi rate for the given model and pulse shape.
@@ -495,7 +500,7 @@ def find_rabi_rate(solver: qiskit_dynamics.Solver,
             amplitude value
         filename: The plot will be saved in the given filename. If filename
             if omitted, the plot will be displayed
-    
+
     Returns:
         The Rabi frequency. Driving the pulse with the returned amplitude
         analogies to drive a 2*pi pulse.
@@ -506,14 +511,16 @@ def find_rabi_rate(solver: qiskit_dynamics.Solver,
     t_eval = np.linspace(0., t_final, n_steps)
 
     y0 = quantum_info.states.Statevector([1., 0.])
+    Z = quantum_info.Operator.from_label('Z')
 
     def evolve(amplitude: float):
         current_schedule = schedule.assign_parameters(
             {amplitude_parameter: amplitude}, inplace=False)
-        signal = converter.get_signals(current_schedule)[0]
         sol: ivp.OdeResult = solver.solve(
-            t_span=[0., t_final], y0=y0, signals=[signal], t_eval=t_eval)
-        Z = quantum_info.Operator.from_label('Z')
+            t_span=[0., t_final],
+            y0=y0,
+            signals=current_schedule,
+            t_eval=t_eval)
         final_state: quantum_info.states.Statevector = sol.y[t_final]
         return final_state.expectation_value(Z).real
 
@@ -574,13 +581,17 @@ def find_rabi_rate(solver: qiskit_dynamics.Solver,
     return period
 
 
-def calibrate_x_pulse(qubit_frequency: float = 4.6,
-                      drive_frequency: float = 4.6,
-                      omega: float = 0.6):
-    '''Calibrate the X gate for a qubit.
-    
-    The Hamiltonian is truncated to two levels from the Hamiltonian published
-    by IBM Quantum.
+@safe.inf_cache()
+def two_level_solver(qubit_frequency: float = 4.6,
+                     drive_frequency: float = 4.6,
+                     omega: float = 0.6) -> qiskit_dynamics.Solver:
+    '''Establish a solver for simulating a qubit.
+
+    The solver is transformed into the rotating frame on the pulse's frequency,
+    and applied RWA.
+
+    The Hamiltonian in the lab frame is truncated to two levels from the
+    Hamiltonian published by IBM Quantum.
     $$
     \\begin{align*}
     H &= \\frac{1}{2} \\omega_q ({I-Z}) + \\Omega \\cos(2 \\pi \\nu_d t){X} \\\\
@@ -607,72 +618,140 @@ def calibrate_x_pulse(qubit_frequency: float = 4.6,
     nu_z = qubit_frequency * dt
     nu_x = omega / 2 / np.pi * dt
     nu_d = drive_frequency * dt
-    drift = -2 * np.pi * nu_d * Z / 2
+    rotating_frame_frequency = nu_d
+    drift = -2 * np.pi * rotating_frame_frequency * Z / 2
 
-    solver = qiskit_dynamics.Solver(
+    # One of `channel_carrier_freqs` or `rwa_carrier_freqs` should be set to
+    # make RWA works
+    # `rwa_cutoff_freq` should be in the range:
+    #   (abs(rotating_frame_frequency - rwa_carrier_freqs),
+    #    rotating_frame_frequency + rwa_carrier_freqs)
+    # If `rwa_carrier_freqs` is omitted, the value of `rwa_carrier_freqs`
+    # will be replaced by `channel_carrier_freqs`.
+    return qiskit_dynamics.Solver(
         static_hamiltonian=.5 * 2 * np.pi * nu_z * (I - Z),
         hamiltonian_operators=[2 * np.pi * nu_x * X],
+        hamiltonian_channels=['d0'],
+        channel_carrier_freqs={'d0': nu_d},
+        dt=1,
         rotating_frame=drift,
         rwa_cutoff_freq=nu_d * 1.5,
     )
 
+
+@safe.no_cache(
+    cache=archives.dir_archive(name=CACHE_DIR / 'scripts' /
+                               'calibrate_x_gaussian_pulse'),
+    keymap=keymaps.hashmap(algorithm='md5'))
+def calibrate_x_gaussian_pulse(qubit_frequency: float, drive_frequency: float,
+                               omega: float, duration: int,
+                               sigma: float) -> float:
+    '''Calibrate the X gate for a qubit.
+
+    Find the best amplitude of the Gaussian pulse with using Rabi oscillation.
+
+    The Hamiltonian is truncated to two levels from the Hamiltonian published
+    by IBM Quantum.
+    $$
+    \\begin{align*}
+    H &= \\frac{1}{2} \\omega_q ({I-Z}) + \\Omega \\cos(2 \\pi \\nu_d t){X} \\\\
+      &= \\frac{1}{2} \\times 2 \\pi \\nu_z ({I-Z}) + 2 \\pi \\nu_x \\cos(2 \\pi \\nu_d t){X}
+    \\end{align*}
+    $$
+
+    Args:
+        qubit_frequency: qubit's frequency in GHz
+        drive_frequency: signal's frequency in GHz
+        omega: A hardward constant in 10^9 rads. This is the value of $\\Omega$
+            in the Hamiltonian above.
+        duration: duration of the pulse in dt.
+        sigma: sigma value of the Gaussian pulse in dt.
+    
+    Returns:
+        The amplitude of the Gaussian pulse.
+    '''
     amplitude_parameter = parameter.Parameter('amp')
     with qiskit.pulse.build() as x_pi_pulse:
         gaussian = qiskit.pulse.library.Gaussian(
-            duration=256, amp=amplitude_parameter, sigma=64)
+            duration=duration, amp=amplitude_parameter, sigma=sigma)
         qiskit.pulse.play(gaussian, qiskit.pulse.DriveChannel(0))
 
-    converter = qiskit_dynamics.pulse.InstructionToSignals(
-        1, carriers={'d0': nu_d})
+    solver = two_level_solver(qubit_frequency, drive_frequency, omega)
+    filename = f'simulation-x_gate-rabi-q_{qubit_frequency},d_{drive_frequency},o_{omega}'
+    amplitude = find_rabi_rate(
+        solver, x_pi_pulse, amplitude_parameter, filename=filename)
+    amplitude /= 2
+    if amplitude > 1.0:
+        raise ValueError('Rabi curve fitting failed.')
+    return amplitude
 
-    key = (qubit_frequency, drive_frequency, omega)
-    plot_evolution = False
-    if key in gaussian_x_pi_pulse_amplitudes:
-        pulse_final = gaussian_x_pi_pulse_amplitudes[key]
-        if not pulse_final.is_good or pulse_final.angle is not None:
-            return
-        amplitude = pulse_final.amplitude
-    else:
-        filename = f'simulation-x_gate-rabi-q_{qubit_frequency},d_{drive_frequency},o_{omega}'
-        amplitude = find_rabi_rate(
-            solver,
-            x_pi_pulse,
-            converter,
-            amplitude_parameter,
-            filename=filename)
-        amplitude /= 2
-        gaussian_x_pi_pulse_amplitudes[key] = PulseFinal(amplitude)
-        if amplitude > 1.0:
-            print('Rabi curve fitting failed.')
-            print(f'{key}: PulseFinal({amplitude:.17f}, is_good=False),')
-            return
-        print(f'{key}: PulseFinal({amplitude:.17f}),')
-        plot_evolution = True
 
-    x_pi_pulse.assign_parameters({amplitude_parameter: amplitude})
-    signal = converter.get_signals(x_pi_pulse)[0]
+@safe.no_cache(
+    cache=archives.dir_archive(name=CACHE_DIR / 'scripts' /
+                               'calibrate_and_evaluate_x_gaussian_pulse'),
+    keymap=keymaps.hashmap(algorithm='md5'))
+def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
+                                            drive_frequency: float,
+                                            omega: float,
+                                            duration: int = 256,
+                                            sigma: float = 64) -> PulseFinal:
+    '''Calibrate the X gate for a qubit and calculate the effective rotation.
 
-    y0 = np.eye(2, dtype=complex)
+    Find the best amplitude of the Gaussian pulse with using Rabi oscillation,
+    and calculate the equivalent rotation axis and angle of the pulse at each
+    time step.
+
+    The Hamiltonian is truncated to two levels from the Hamiltonian published
+    by IBM Quantum.
+    $$
+    \\begin{align*}
+    H &= \\frac{1}{2} \\omega_q ({I-Z}) + \\Omega \\cos(2 \\pi \\nu_d t){X} \\\\
+      &= \\frac{1}{2} \\times 2 \\pi \\nu_z ({I-Z}) + 2 \\pi \\nu_x \\cos(2 \\pi \\nu_d t){X}
+    \\end{align*}
+    $$
+
+    Args:
+        qubit_frequency: qubit's frequency in GHz
+        drive_frequency: signal's frequency in GHz
+        omega: A hardward constant in 10^9 rads. This is the value of $\\Omega$
+            in the Hamiltonian above.
+        duration: duration of the pulse in dt.
+        sigma: sigma value of the Gaussian pulse in dt.
+    
+    Returns:
+        The amplitude of the Gaussian pulse.
+    '''
+    amplitude = calibrate_x_gaussian_pulse(qubit_frequency, drive_frequency,
+                                           omega, duration, sigma)
+    with qiskit.pulse.build() as x_pi_pulse:
+        gaussian = qiskit.pulse.library.Gaussian(
+            duration=duration, amp=amplitude, sigma=sigma)
+        qiskit.pulse.play(gaussian, qiskit.pulse.DriveChannel(0))
+    solver = two_level_solver(qubit_frequency, drive_frequency, omega)
+
     t_final = x_pi_pulse.duration
     tau = 1
     n_steps = int(np.ceil(t_final / tau)) + 1
     t_eval = np.linspace(0., t_final, n_steps)
 
-    if plot_evolution:
-        sol: ivp.OdeResult = solver.solve(
-            t_span=[0., t_final],
-            y0=quantum_info.states.Statevector([1., 0.]),
-            signals=[signal],
-            t_eval=t_eval)
-        title = rf'$\omega_q = {qubit_frequency} GHz$ $\omega_d = {drive_frequency} GHz$ $\Omega = {omega}$'
-        filename = f'simulation-x_gate-q_{qubit_frequency},d_{drive_frequency},o_{omega}'
-        plot_qubit_dynamics(
-            sol, t_eval, X, Y, Z, title=title, filename=filename)
-
+    # plot evolution
+    X = quantum_info.Operator.from_label('X')
+    Y = quantum_info.Operator.from_label('Y')
+    Z = quantum_info.Operator.from_label('Z')
     sol: ivp.OdeResult = solver.solve(
         t_span=[0., t_final],
-        y0=y0,
-        signals=[signal],
+        y0=quantum_info.states.Statevector([1., 0.]),
+        signals=x_pi_pulse,
+        t_eval=t_eval)
+    title = rf'$\omega_q = {qubit_frequency} GHz$ $\omega_d = {drive_frequency} GHz$ $\Omega = {omega}$'
+    filename = f'simulation-x_gate-q_{qubit_frequency},d_{drive_frequency},o_{omega}'
+    plot_qubit_dynamics(sol, t_eval, X, Y, Z, title=title, filename=filename)
+
+    # the tolerance should small enough to make the result enough close to an unitary
+    sol: ivp.OdeResult = solver.solve(
+        t_span=[0., t_final],
+        y0=np.eye(2, dtype=np.complex128),
+        signals=x_pi_pulse,
         t_eval=t_eval,
         atol=1e-10,
         rtol=1e-10)
@@ -714,11 +793,6 @@ def calibrate_x_pulse(qubit_frequency: float = 4.6,
         z_data[t_i] = z
         r_data[t_i] = np.arctan2(r, i) * 2
     x, y, z = x_data[-1], y_data[-1], z_data[-1]
-    gaussian_x_pi_pulse_amplitudes[key] = PulseFinal(
-        amplitude, axis_x=x, axis_y=y, axis_z=z, angle=r_data[-1])
-    print(
-        f'{key}: PulseFinal({amplitude:.17f},  axis_x={x:.17f}, axis_y={y:.17f}, axis_z={z:.17f}, angle={r_data[-1]:.17f}),'
-    )
 
     fontsize = 16
     _, ax = plt.subplots(figsize=(10, 6))
@@ -734,6 +808,7 @@ def calibrate_x_pulse(qubit_frequency: float = 4.6,
     ax.set_title(title, fontsize=fontsize)
     plt.savefig(IMAGE_DIR / f'{filename}.png')
     # plt.show()
+    return PulseFinal(amplitude, axis_x=x, axis_y=y, axis_z=z, angle=r_data[-1])
 
 
 def demo_rotate_two_rounds():
@@ -864,7 +939,7 @@ def plot_rabi_frequencies():
     fig.savefig(IMAGE_DIR / 'simulation-x_gate-off_resonance.png')
 
 
-def main():
+def calibrate_x_pulse_with_off_resonance():
     qubit_frequency = 4.6
     omega = 0.6
     off_resonance_rate = 1e-9
@@ -874,11 +949,16 @@ def main():
         off_resonance_rate *= 2
     off_resonances = [-r for r in off_resonances[::-1]] + [0] + off_resonances
     for r in off_resonances:
-        calibrate_x_pulse(
+        calibrate_and_evaluate_x_gaussian_pulse(
             qubit_frequency=qubit_frequency,
             drive_frequency=qubit_frequency + qubit_frequency * r,
             omega=omega)
 
 
+def main():
+    calibrate_and_evaluate_x_gaussian_pulse(
+        qubit_frequency=4.6, drive_frequency=4.6, omega=0.6)
+
+
 if __name__ == '__main__':
-    plot_rabi_frequencies()
+    main()
