@@ -20,7 +20,7 @@ from qiskit import quantum_info
 import qutip
 from klepto import safe
 
-IMAGE_DIR = pathlib.Path('images')
+IMAGE_DIR = pathlib.Path('images') / 'off_resonance'
 CACHE_DIR = pathlib.Path('cache')
 
 
