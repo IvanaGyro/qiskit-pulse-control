@@ -772,8 +772,11 @@ def demo_rotate_two_rounds():
     n_steps = int(np.ceil(t_final / tau)) + 1
     t_eval = np.linspace(0., t_final, n_steps)
     signals = [qiskit_dynamics.signals.Signal(0)]
-    drift = -2 * np.pi * nu_d * Z / 2
+    rotating_frame_frequency = nu_d
+    drift = -2 * np.pi * rotating_frame_frequency * Z / 2
 
+    # rwa_cutoff_freq should be set in this range:
+    # abs(rotating_frame_frequency - drive_frequency * dt) < rwa_cutoff_freq < rotating_frame_frequency + drive_frequency * dt
     solver = qiskit_dynamics.Solver(
         static_hamiltonian=.5 * 2 * np.pi * nu_z * (I - Z),
         hamiltonian_operators=[2 * np.pi * nu_x * X],
