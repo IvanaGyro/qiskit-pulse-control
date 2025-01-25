@@ -360,6 +360,42 @@ gaussian_x_pi_pulse_amplitudes = {
 }
 
 
+def decompose_unitary(unitary: numpy.typing.NDArray) -> tuple[float]:
+    '''Decompose 2x2 unitary operator to the composition of Pauli matrices.
+
+    The input unitart matrix should be in this form:
+
+    $$
+    U = e^{i\phi} \cos(\theta / 2) I - i e^{i\phi} \sum_{i \in \{x, y, z\}} n_i \sin(\theta / 2) \sigma_i
+    $$
+
+    Returns:
+        A tuple of which values are `(\cos(\theta / 2), n_x \sin(\theta / 2), n_y \sin(\theta / 2), n_z \sin(\theta / 2))`
+    '''
+    TOLERANCE = 1e-8
+    if unitary.shape != (2, 2):
+        raise ValueError(f'Unitary should be a 2x2 matrix. unitary: {unitary}')
+    pauli_operators = quantum_info.SparsePauliOp.from_operator(unitary)
+    if not pauli_operators.is_unitary():
+        raise ValueError(f'Matrix is not an unitary. matrix: {unitary}')
+    coefficients = {'I': 0, 'X': 0, 'Y': 0, 'Z': 0}
+    coefficients.update(pauli_operators.to_list())
+    global_phase = coefficients['I'] / np.abs(coefficients['I'])
+
+    corrected_coefficient = coefficients['I'] / global_phase
+    if abs(np.imag(corrected_coefficient)) > TOLERANCE:
+        raise ValueError(
+            f'Error higher than the tolerance. input unitary:{unitary}')
+    coefficients['I'] = np.real(corrected_coefficient)
+    for label in ('X', 'Y', 'Z'):
+        corrected_coefficient = coefficients[label] / global_phase
+        if abs(np.real(corrected_coefficient)) > TOLERANCE:
+            raise ValueError(
+                f'Error higher than the tolerance. input unitary:{unitary}')
+        coefficients[label] = np.imag(coefficients[label] / global_phase)
+    return tuple(coefficients.values())
+
+
 def to_spherical(x, y, z):
     r = (x**2 + y**2 + z**2)**0.5
     theta = np.arctan2((x**2 + y**2)**0.5, z)
@@ -762,32 +798,24 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     z_data = np.zeros((n_times,))
     r_data = np.zeros((n_times,))
 
-    previous_sign = 1
-    previous_i = 0
+    previous_axis = np.zeros(3)
     for t_i, sol_t in enumerate(sol.y):
         rotation_matrix = sol_t
-        # rotation_matrix = solver.model.rotating_frame.state_out_of_frame(
-        #     t_i, sol_t)
-        x = -np.imag(rotation_matrix[1][0] + rotation_matrix[0][1]) / 2
-        y = np.real(rotation_matrix[1][0] - rotation_matrix[0][1]) / 2
-        z = np.imag(rotation_matrix[1][1] - rotation_matrix[0][0]) / 2
-        i = np.real(rotation_matrix[0][0] + rotation_matrix[1][1]) / 2
-        # XXX: This restrict the rotation angle lower than pi. Why do we need
-        #   to do this correction? Is this correction valid?
-        if abs(previous_i) > 0.1 and i * previous_sign < 0:
-            x, y, z, i = -x, -y, -z, -i
-        previous_i = i
-        previous_sign = 1 if i >= 0 else -1
+        i, x, y, z = decompose_unitary(rotation_matrix)
+        axis = np.array((x, y, z))
+        if np.dot(previous_axis, axis) < 0:
+            i, x, y, z = -i, -x, -y, -z
+            axis = -axis
+        previous_axis = axis
         # final_state = sol_t.data
         # x = -np.imag(final_state[1])
         # y = np.real(final_state[1])
         # z = - np.imag(final_state[0])
         # i = np.real(final_state[0])
-        v = np.array([x, y, z])
-        r = np.sqrt(v.dot(v))
+        r = np.sqrt(axis.dot(axis))
         if r != 0:
-            v /= r
-        x, y, z = v
+            axis /= r
+        x, y, z = axis
         x_data[t_i] = x
         y_data[t_i] = y
         z_data[t_i] = z
