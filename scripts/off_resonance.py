@@ -464,8 +464,11 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     Returns:
         The amplitude of the Gaussian pulse.
     '''
+    start_timer('rabi')
     amplitude = calibrate_x_gaussian_pulse(qubit_frequency, drive_frequency,
                                            omega, duration, sigma)
+    stop_timer('rabi')
+
     with qiskit.pulse.build() as x_pi_pulse:
         gaussian = qiskit.pulse.library.Gaussian(
             duration=duration, amp=amplitude, sigma=sigma)
@@ -481,6 +484,7 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     X = quantum_info.Operator.from_label('X')
     Y = quantum_info.Operator.from_label('Y')
     Z = quantum_info.Operator.from_label('Z')
+    start_timer('state_evole')
     sol: ivp.OdeResult = solver.solve(
         t_span=[0., t_final],
         y0=quantum_info.states.Statevector([1., 0.]),
@@ -488,7 +492,11 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
         t_eval=t_eval)
     title = rf'$\omega_q = {qubit_frequency} GHz$ $\omega_d = {drive_frequency} GHz$ $\Omega = {omega}$'
     filename = f'simulation-x_gate-q_{qubit_frequency},d_{drive_frequency},o_{omega}'
+    stop_timer('state_evole')
+
+    start_timer('plot_qubit_dynamics')
     plot_qubit_dynamics(sol, t_eval, X, Y, Z, title=title, filename=filename)
+    stop_timer('plot_qubit_dynamics')
 
     # the tolerance should small enough to make the result enough close to an unitary
     # and to make the error of decompsed coefficient small enough
@@ -500,6 +508,8 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
         t_eval=t_eval,
         atol=1e-12,
         rtol=1e-12)
+    stop_timer('unitary_evolve')
+
     # rotation_matrix = $\cos(\theta / 2) I - i \sin(\theta / 2) \hat{n} \cdot \vec{\sigma}$
     n_times = len(sol.y)
     x_data = np.zeros((n_times,))
@@ -507,6 +517,7 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     z_data = np.zeros((n_times,))
     r_data = np.zeros((n_times,))
 
+    start_timer('decompose_unitary_series')
     previous_axis = np.zeros(3)
     for t_i, sol_t in enumerate(sol.y):
         rotation_matrix = sol_t
@@ -530,6 +541,7 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
         z_data[t_i] = z
         r_data[t_i] = np.arctan2(r, i) * 2
     x, y, z = x_data[-1], y_data[-1], z_data[-1]
+    stop_timer('decompose_unitary_series')
 
     fontsize = 16
     _, ax = plt.subplots(figsize=(10, 6))
@@ -701,4 +713,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    calibrate_x_pulse_with_off_resonance()
