@@ -66,7 +66,7 @@ def decompose_unitary(unitary: numpy.typing.NDArray) -> tuple[float]:
         if abs(np.real(corrected_coefficient)) > TOLERANCE:
             raise ValueError(
                 f'Error higher than the tolerance. input unitary:{unitary}')
-        coefficients[label] = np.imag(coefficients[label] / global_phase)
+        coefficients[label] = -np.imag(coefficients[label] / global_phase)
     return tuple(coefficients.values())
 
 
