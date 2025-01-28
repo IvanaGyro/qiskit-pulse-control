@@ -19,6 +19,7 @@ import qiskit_dynamics.pulse
 from qiskit import quantum_info
 import qutip
 from klepto import safe
+import time
 
 IMAGE_DIR = pathlib.Path('images') / 'off_resonance'
 CACHE_DIR = pathlib.Path('cache')
@@ -32,6 +33,38 @@ class PulseFinal:
     axis_z: float = None
     angle: float = None
     is_good: bool = True
+
+
+_profiler: dict[str, float] = {}
+
+
+def start_timer(label: str):
+    '''
+    Start timing an operation.
+
+    Parameters:
+        label (str): A unique label to identify the timer.
+    '''
+    global _profiler
+    _profiler[label] = time.time()
+
+
+def stop_timer(label: str):
+    '''
+    Stop the timer for an operation and print the elapsed time.
+
+    Parameters:
+        label (str): The label used to start the timer.
+
+    Returns:
+        elapsed_time (float): The elapsed time in seconds.
+    '''
+    global _profiler
+    if label not in _profiler:
+        raise ValueError(f"No timer started with label '{label}'.")
+    elapsed_time = time.time() - _profiler.pop(label)
+    print(f"Timer '{label}' completed in {elapsed_time:.6f} seconds.")
+    return elapsed_time
 
 
 def decompose_unitary(unitary: numpy.typing.NDArray) -> tuple[float]:
@@ -645,7 +678,7 @@ def calibrate_x_pulse_with_off_resonance():
     angles = []
     for r in off_resonances:
         off_resonance_frequency = qubit_frequency * r
-        pulse_final:PulseFinal = calibrate_and_evaluate_x_gaussian_pulse(
+        pulse_final: PulseFinal = calibrate_and_evaluate_x_gaussian_pulse(
             qubit_frequency=qubit_frequency,
             drive_frequency=qubit_frequency + off_resonance_frequency,
             omega=omega)
