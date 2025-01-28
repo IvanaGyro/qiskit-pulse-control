@@ -491,13 +491,15 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     plot_qubit_dynamics(sol, t_eval, X, Y, Z, title=title, filename=filename)
 
     # the tolerance should small enough to make the result enough close to an unitary
+    # and to make the error of decompsed coefficient small enough
+    start_timer('unitary_evolve')
     sol: ivp.OdeResult = solver.solve(
         t_span=[0., t_final],
         y0=np.eye(2, dtype=np.complex128),
         signals=x_pi_pulse,
         t_eval=t_eval,
-        atol=1e-10,
-        rtol=1e-10)
+        atol=1e-12,
+        rtol=1e-12)
     # rotation_matrix = $\cos(\theta / 2) I - i \sin(\theta / 2) \hat{n} \cdot \vec{\sigma}$
     n_times = len(sol.y)
     x_data = np.zeros((n_times,))
