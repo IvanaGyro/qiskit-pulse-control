@@ -80,26 +80,41 @@ def decompose_unitary(unitary: numpy.typing.NDArray) -> tuple[float]:
         A tuple of which values are `(\cos(\theta / 2), n_x \sin(\theta / 2), n_y \sin(\theta / 2), n_z \sin(\theta / 2))`
     '''
     TOLERANCE = 1e-8
+    RELATIVE_TOLERANCE = 1e-6
     if unitary.shape != (2, 2):
         raise ValueError(f'Unitary should be a 2x2 matrix. unitary: {unitary}')
     pauli_operators = quantum_info.SparsePauliOp.from_operator(unitary)
     if not pauli_operators.is_unitary():
         raise ValueError(f'Matrix is not an unitary. matrix: {unitary}')
     coefficients = {'I': 0, 'X': 0, 'Y': 0, 'Z': 0}
+    errors = {'I': 0, 'X': 0, 'Y': 0, 'Z': 0}
     coefficients.update(pauli_operators.to_list())
     global_phase = coefficients['I'] / np.abs(coefficients['I'])
 
     corrected_coefficient = coefficients['I'] / global_phase
     if abs(np.imag(corrected_coefficient)) > TOLERANCE:
+        errors['I'] = np.imag(corrected_coefficient)
         raise ValueError(
             f'Error higher than the tolerance. input unitary:{unitary}')
     coefficients['I'] = np.real(corrected_coefficient)
+    inaccurate = False
     for label in ('X', 'Y', 'Z'):
         corrected_coefficient = coefficients[label] / global_phase
         if abs(np.real(corrected_coefficient)) > TOLERANCE:
-            raise ValueError(
-                f'Error higher than the tolerance. input unitary:{unitary}')
+            errors[label] = np.real(corrected_coefficient)
+            inaccurate = True
+            print(f'Warning: Error higher than the tolerance. '
+                  f' label:{label} coefficient:{corrected_coefficient}'
+                  f' input unitary:{unitary}')
         coefficients[label] = -np.imag(coefficients[label] / global_phase)
+    if inaccurate:
+        axis = np.array(
+            (coefficients['X'], coefficients['Y'], coefficients['Z']))
+        axis_length = np.sqrt(axis.dot(axis))
+        if any(abs(e / axis_length) > RELATIVE_TOLERANCE for e in errors.values()):
+            raise ValueError(f'Relative error higher than the tolerance. '
+                             f'axis:{axis} length:{axis_length} '
+                             f'input unitary:{unitary}')
     return tuple(coefficients.values())
 
 
