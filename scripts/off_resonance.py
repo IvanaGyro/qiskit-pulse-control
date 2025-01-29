@@ -690,8 +690,7 @@ def calibrate_x_pulse_with_off_resonance():
     ys = []
     zs = []
     angles = []
-    for r in off_resonances:
-        off_resonance_frequency = qubit_frequency * r
+    for off_resonance_frequency in off_resonances:
         pulse_final: PulseFinal = calibrate_and_evaluate_x_gaussian_pulse(
             qubit_frequency=qubit_frequency,
             drive_frequency=qubit_frequency + off_resonance_frequency,
