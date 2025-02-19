@@ -140,12 +140,8 @@ class RabiScanAmplitudes(meta.QiskitTask):
     sigma: float
     physical_qubit: int
 
-    def build_circuit(self, backend, amplitude, sigma):
+    def build_circuit(self, backend, duration, amplitude, sigma):
         with pulse.build(backend) as gate_pulse:
-            # duration must be a multiple of 16 cycles
-            # duration should be at least 64dt and must be int
-            duration = int((sigma * 6 + 15) // 16 * 16)
-            duration = max(duration, 64)
             microwave = Gaussian(duration, amplitude, sigma)
             pulse.play(microwave, pulse.drive_channel(0))
 
@@ -166,8 +162,12 @@ class RabiScanAmplitudes(meta.QiskitTask):
 
     def submit_job(self):
         backend = service.get_service().backend(self.backend)
+        # duration must be a multiple of 16 cycles
+        # duration should be at least 64dt and must be int
+        duration = int((self.sigma * 6 + 15) // 16 * 16)
+        duration = max(duration, 64)
         circuits = [
-            self.build_circuit(backend, amplitude, self.sigma)
+            self.build_circuit(backend, duration, amplitude, self.sigma)
             for amplitude in self.amplitudes
         ]
         sampler = SamplerV2(mode=backend)
@@ -209,6 +209,102 @@ class RabiScanAmplitudes(meta.QiskitTask):
         plt.scatter(amplitudes, proportions, color='blue', label='Data Points')
         plt.plot(x_fit, y_fit, color='red', label='Fitted Curve')
         plt.title(rf'Gaussian Pulse, $\sigma = {self.sigma}$')
+        plt.xlabel('Amplitude')
+        plt.ylabel(r'Proportion of $|1\rangle$')
+
+        ax = plt.gca()
+        ax.text(
+            0.5,
+            -0.15,
+            rf'period = {curve_parameters[2]:.3f} $\pm$ {errors[2]:.3f}',
+            fontsize=12,
+            verticalalignment='top',
+            horizontalalignment='center',
+            transform=ax.transAxes,
+            bbox={
+                'boxstyle': 'square',
+                'facecolor': (0, 0, 0, 0),
+            })
+
+        plt.tight_layout()
+        plt.show()
+
+@dataclass
+class RabiGaussian(meta.QiskitTask):
+    amplitudes: list[float]
+    sigma: float
+    duration: int
+    physical_qubit: int
+
+    def build_circuit(self, backend, duration, amplitude, sigma):
+        with pulse.build(backend) as gate_pulse:
+            microwave = Gaussian(duration, amplitude, sigma)
+            pulse.play(microwave, pulse.drive_channel(0))
+
+            # gate_pulse.draw()
+            # print(gate_pulse)
+
+            gate = Gate(name='Gaussian', label='G', num_qubits=1, params=[])
+            qc = QuantumCircuit(1, 1)
+            qc.append(gate, [0])
+            # XXX: Does assigning physical qubit here work? qiskit_experiments
+            # does this:
+            # https://qiskit-community.github.io/qiskit-experiments/_modules/qiskit_experiments/library/characterization/rabi.html#Rabi
+            qc.add_calibration(gate, (self.physical_qubit,), gate_pulse)
+
+            # Must do measurement to get the result from the sampler.
+            qc.measure(0, 0)
+            return qc
+
+    def submit_job(self):
+        backend = meta.get_backend(self.backend)
+        if self.duration % 16 != 0:
+            raise ValueError('duration must be a multiple of 16 cycles')
+        if self.duration < 64:
+            raise ValueError('duration should be at least 64dt')
+        circuits = [
+            self.build_circuit(backend, self.duration, amplitude, self.sigma)
+            for amplitude in self.amplitudes
+        ]
+        sampler = SamplerV2(mode=backend)
+        job = sampler.run(circuits)
+        return unified_job.Job(job)
+
+    def post_process(self, result):
+        proportions = []
+        amplitudes = []
+        for circuit_result, amplitude in zip(result, self.amplitudes):
+            bitarray: BitArray = circuit_result.data['c']
+            proportion = bitarray.get_int_counts()[1] / bitarray.num_shots
+            proportions.append(proportion)
+            amplitudes.append(amplitude)
+
+        points = sorted(zip(proportions, amplitudes))
+        guess_max = points[0][0]
+        guess_min = points[-1][0]
+        guess_amplitude = (guess_max - guess_min) / 2
+        guess_base = (guess_max + guess_min) / 2
+        # XXX: not a good guess
+        guess_period = points[1][1] - points[0][1]
+        guess_period = 0.35
+        cos_curve = lambda x, amplitude, base, period, phase: amplitude * np.cos(
+            2 * math.pi * x / period + phase) + base
+        fit_result = optimize.curve_fit(
+            cos_curve,
+            amplitudes,
+            proportions,
+            p0=[guess_amplitude, guess_base, guess_period, 0])
+        curve_parameters, pcov = fit_result
+        errors = np.sqrt(np.diag(pcov))
+
+        x_fit = np.linspace(min(self.amplitudes), max(self.amplitudes), 100)
+        y_fit = cos_curve(x_fit, *curve_parameters)
+
+        # Create the plot
+        plt.figure(figsize=(8, 6))
+        plt.scatter(amplitudes, proportions, color='blue', label='Data Points')
+        plt.plot(x_fit, y_fit, color='red', label='Fitted Curve')
+        plt.title(rf'Gaussian Pulse, $\sigma = {self.sigma}$ duration = {self.duration}')
         plt.xlabel('Amplitude')
         plt.ylabel(r'Proportion of $|1\rangle$')
 
@@ -439,13 +535,13 @@ def main():
     #                          amplitudes=[0.5, 0.75, 1],
     #                          sigmas=[16, 24, 32, 40, 48]).run()
 
-    # GaussianPulseCalibration('ibm_sherbrooke',
-    #                          amplitudes=[1],
-    #                          sigmas=list(range(5, 101))).run()
+    # GaussianPulseCalibration(
+    #     'ibm_sherbrooke', amplitudes=[1], sigmas=list(range(5, 101))).run()
 
-    # GaussianPulseCalibration('ibm_sherbrooke',
-    #                          amplitudes=[1],
-    #                          sigmas=[20 + i * 0.1 for i in range(20)]).run()
+    # GaussianPulseCalibration(
+    #     'ibm_sherbrooke',
+    #     amplitudes=[1],
+    #     sigmas=[20 + i * 0.1 for i in range(20)]).run()
 
     # CompareDragAndGaussian('ibm_sherbrooke',
     #                        duration=256,
@@ -464,6 +560,7 @@ def main():
     # TomographyOfXateSeries(
     #     'fake_sherbrooke', x_gate_count=5, physical_qubit=5).run()
 
+    # TODO: replace `RabiScanAmplitudes` with `RabiGaussian`
     # RabiScanAmplitudes(
     #     'ibm_sherbrooke',
     #     amplitudes=[0.03 * i for i in range(1, 26)],
@@ -479,6 +576,12 @@ def main():
     #     amplitudes=[0.03 * i for i in range(1, 26)],
     #     sigma=47.,
     #     physical_qubit=0).run()
+    RabiGaussian(
+        'ibm_sherbrooke',
+        amplitudes=[0.02 * i for i in range(1, 39)],
+        sigma=64,
+        duration=256,
+        physical_qubit=0).run()
 
     # RamseyCharacterization(
     #     'ibm_sherbrooke',
