@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import math
 
 from qiskit_pulse_control import waveform
+from qiskit_pulse_control import coordinate
 
 theta = math.pi / 6
 rotate_pi_over_6 = np.quaternion(np.cos(theta / 2), np.sin(theta / 2), 0, 0)
@@ -32,18 +33,6 @@ t_end = 256.0  # End time
 
 frequency_shift = 2*1e-4
 frequency_shift = 0
-
-
-def to_spherical(x, y, z):
-    r = (x**2 + y**2 + z**2)**0.5
-    theta = np.arctan2((x**2 + y**2)**0.5, z)
-    phi = np.arctan2(y, x)
-    return (r, theta, phi)
-
-
-def to_spherical_degree(x, y, z):
-    r, theta, phi = to_spherical(x, y, z)
-    return (r, theta / math.pi * 180, phi / math.pi * 180)
 
 
 def quaternion_shifted_h(t):
@@ -149,15 +138,15 @@ for i in range(num_steps - 1):
 print('q_not_shifted_total')
 print(q_not_shifted_total)
 print(
-    to_spherical_degree(q_not_shifted_total.x, q_not_shifted_total.y,
-                        q_not_shifted_total.z))
+    coordinate.to_spherical_degree(q_not_shifted_total.x, q_not_shifted_total.y,
+                                   q_not_shifted_total.z))
 print()
 
 print('q_shifted_total')
 print(q_shifted_total)
 print(
-    to_spherical_degree(q_shifted_total.x, q_shifted_total.y,
-                        q_shifted_total.z))
+    coordinate.to_spherical_degree(q_shifted_total.x, q_shifted_total.y,
+                                   q_shifted_total.z))
 print()
 
 q_drag_total = np.quaternion(1, 0, 0, 0)
@@ -165,7 +154,9 @@ for i in range(256):
     q_drag_total *= quaternion_h(i)
 print('q_drag_total')
 print(q_drag_total)
-print(to_spherical_degree(q_drag_total.x, q_drag_total.y, q_drag_total.z))
+print(
+    coordinate.to_spherical_degree(q_drag_total.x, q_drag_total.y,
+                                   q_drag_total.z))
 print()
 
 # duration=256,
