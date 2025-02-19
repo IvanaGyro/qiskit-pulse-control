@@ -5,6 +5,8 @@ import quaternion
 import matplotlib.pyplot as plt
 import math
 
+from qiskit_pulse_control import waveform
+
 theta = math.pi / 6
 rotate_pi_over_6 = np.quaternion(np.cos(theta / 2), np.sin(theta / 2), 0, 0)
 # print(rotate_pi_over_6 * rotate_pi_over_6)
@@ -31,44 +33,45 @@ t_end = 256.0  # End time
 frequency_shift = 2*1e-4
 frequency_shift = 0
 
+
 def to_spherical(x, y, z):
     r = (x**2 + y**2 + z**2)**0.5
     theta = np.arctan2((x**2 + y**2)**0.5, z)
     phi = np.arctan2(y, x)
     return (r, theta, phi)
 
-def to_spherical_degree(x, y ,z):
+
+def to_spherical_degree(x, y, z):
     r, theta, phi = to_spherical(x, y, z)
     return (r, theta / math.pi * 180, phi / math.pi * 180)
-
-
 
 
 def quaternion_shifted_h(t):
     sigma = 52.8
     amplitude = 0.2
     duration = t_end - t_start
-    gaussian_waveform = gaussian(duration, amplitude, sigma)
+    gaussian_waveform = waveform.gaussian(duration, amplitude, sigma)
     rotation_angle = gaussian_waveform(t) * OMEGA
     return np.quaternion(
         np.cos(rotation_angle / 2),
         np.sin(rotation_angle / 2) * np.cos(frequency_shift * t),
         np.sin(rotation_angle / 2) * np.sin(frequency_shift * t), 0)
 
+
 def quaternion_not_shifted_h(t):
     sigma = 52.8
     amplitude = 0.2
     duration = t_end - t_start
-    gaussian_waveform = gaussian(duration, amplitude, sigma)
+    gaussian_waveform = waveform.gaussian(duration, amplitude, sigma)
     theta = gaussian_waveform(t) * OMEGA
-    return np.quaternion(np.cos(theta / 2), np.sin(theta / 2), 0, 0) 
+    return np.quaternion(np.cos(theta / 2), np.sin(theta / 2), 0, 0)
 
 
 def quaternion_h(t):
     sigma = 64
     duration = t_end - t_start
     amplitude = 0.2002363461992037
-    gaussian_waveform = gaussian(duration, amplitude, sigma)
+    gaussian_waveform = waveform.gaussian(duration, amplitude, sigma)
     theta = gaussian_waveform(t) * OMEGA
     return np.quaternion(np.cos(theta / 2), np.sin(theta / 2), 0, 0)
 
@@ -81,37 +84,17 @@ def H(t):
     # sigma = 32
     # duration = 32 * 6
     # amplitude = 1
-    gaussian_waveform = gaussian(duration, amplitude, sigma)
+    gaussian_waveform = waveform.gaussian(duration, amplitude, sigma)
     return gaussian_waveform(t) * OMEGA / 2 * sigma_x
 
 
-def gaussian(duration, amplitude, sigma, angle=0.0):
- 
-    def generator(t):
-        return np.exp(-(t - duration / 2)**2 / 2 / sigma**2)
-    
-    zero_level = generator(-1)
-
-    def weighted_generator(t):
-        return amplitude * np.exp(1.j * angle) * (generator(t) - zero_level) / (1. - zero_level)
-
-    return weighted_generator
-
-
-
-def drag(duration, amplitude, sigma, beta, angle=0.0):
-    gaussian_waveform = gaussian(duration, amplitude, sigma, angle)
-    def generator(t):
-        return gaussian_waveform(t) * (1. - 1.j * beta * (t - duration / 2) / sigma**2)
-    return generator
-
 def quaternion_drag_x(t):
-    duration=256
-    amplitude=0.2002363461992037
-    sigma=64
-    beta=3.279359125685733
-    angle=0.0
-    drag_waveform = drag(duration, amplitude, sigma, beta, angle)
+    duration = 256
+    amplitude = 0.2002363461992037
+    sigma = 64
+    beta = 3.279359125685733
+    angle = 0.0
+    drag_waveform = waveform.drag(duration, amplitude, sigma, beta, angle)
     complex_amplitude: complex = drag_waveform(t) * OMEGA
     rotation_angle = abs(complex_amplitude)
     return np.quaternion(
@@ -130,7 +113,6 @@ def quaternion_drag_x(t):
 # plt.plot(xs, ys, color='orange')
 # plt.show()
 # exit()
-
 
 num_steps = int(t_end - t_start)  # Number of steps for integration
 
@@ -166,14 +148,17 @@ for i in range(num_steps - 1):
 
 print('q_not_shifted_total')
 print(q_not_shifted_total)
-print(to_spherical_degree(q_not_shifted_total.x, q_not_shifted_total.y, q_not_shifted_total.z))
+print(
+    to_spherical_degree(q_not_shifted_total.x, q_not_shifted_total.y,
+                        q_not_shifted_total.z))
 print()
 
 print('q_shifted_total')
 print(q_shifted_total)
-print(to_spherical_degree(q_shifted_total.x, q_shifted_total.y, q_shifted_total.z))
+print(
+    to_spherical_degree(q_shifted_total.x, q_shifted_total.y,
+                        q_shifted_total.z))
 print()
-
 
 q_drag_total = np.quaternion(1, 0, 0, 0)
 for i in range(256):
@@ -183,12 +168,8 @@ print(q_drag_total)
 print(to_spherical_degree(q_drag_total.x, q_drag_total.y, q_drag_total.z))
 print()
 
-
-    
-
-
 # duration=256,
-    #                        amplitude=0.2002363461992037,
-    #                        sigma=64,
-    #                        beta=3.279359125685733,
-    #                        angle=0.0
+#                        amplitude=0.2002363461992037,
+#                        sigma=64,
+#                        beta=3.279359125685733,
+#                        angle=0.0
