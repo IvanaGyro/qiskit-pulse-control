@@ -21,6 +21,8 @@ import qutip
 from klepto import safe
 import time
 
+from qiskit_pulse_control import coordinate
+
 IMAGE_DIR = pathlib.Path('images') / 'off_resonance'
 CACHE_DIR = pathlib.Path('cache')
 
@@ -111,23 +113,13 @@ def decompose_unitary(unitary: numpy.typing.NDArray) -> tuple[float]:
         axis = np.array(
             (coefficients['X'], coefficients['Y'], coefficients['Z']))
         axis_length = np.sqrt(axis.dot(axis))
-        if any(abs(e / axis_length) > RELATIVE_TOLERANCE for e in errors.values()):
+        if any(
+                abs(e / axis_length) > RELATIVE_TOLERANCE
+                for e in errors.values()):
             raise ValueError(f'Relative error higher than the tolerance. '
                              f'axis:{axis} length:{axis_length} '
                              f'input unitary:{unitary}')
     return tuple(coefficients.values())
-
-
-def to_spherical(x, y, z):
-    r = (x**2 + y**2 + z**2)**0.5
-    theta = np.arctan2((x**2 + y**2)**0.5, z)
-    phi = np.arctan2(y, x)
-    return (r, theta, phi)
-
-
-def to_spherical_degree(x, y, z):
-    r, theta, phi = to_spherical(x, y, z)
-    return (r, theta / np.pi * 180, phi / np.pi * 180)
 
 
 def plot_qubit_dynamics(sol: ivp.OdeResult,
@@ -646,47 +638,75 @@ def draw_pulse_signal():
     plt.show()
 
 
-def plot_rabi_frequencies(drive_frequencies: list[float],
+def plot_off_resonance_effects(off_resonance_frequencies: list[float],
                           amplitudes: list[float], xs: list[float],
                           ys: list[float], zs: list[float],
                           angles: list[float]):
-    fig, (ax0, ax1, ax2, ax3, ax4) = plt.subplots(nrows=5, figsize=(10, 30))
+    for i in range(len(xs)):
+        if xs[i] < 0:
+            xs[i] = -xs[i]
+    r, theta, phi = coordinate.to_spherical_degree(
+        np.array(xs), np.array(ys), np.array(zs))
 
-    ax0.set_xscale('symlog')
-    ax0.set_xlabel('off resonance (Hz)')
+    figs: list[plt.Figure] = []
+    axs: list[plt.Axes] = []
+    for i in range(7):
+        fig_i, ax = plt.subplots(figsize=(10, 6))
+        figs.append(fig_i)
+        axs.append(ax)
+    ax0, ax1, ax2, ax3, ax4, ax5, ax6 = axs
+
+    ax0.set_xscale('symlog', linthresh=1e-9)
+    ax0.set_xlabel('off resonance (GHz)')
     ax0.set_ylabel('amplitudes')
     ax0.grid()
     ax0.xaxis.grid(which='minor')
-    ax0.scatter(drive_frequencies, amplitudes)
+    ax0.scatter(off_resonance_frequencies, amplitudes)
 
-    ax1.set_xscale('symlog')
+    ax1.set_xscale('symlog', linthresh=1e-9)
     ax1.set_xlabel('off resonance (GHz)')
     ax1.set_ylabel('x')
     ax1.grid()
     ax1.xaxis.grid(which='minor')
-    ax1.scatter(drive_frequencies, xs)
+    ax1.scatter(off_resonance_frequencies, xs)
 
-    ax2.set_xscale('symlog')
+    ax2.set_xscale('symlog', linthresh=1e-9)
     ax2.set_xlabel('off resonance (GHz)')
     ax2.set_ylabel('y')
     ax2.grid()
     ax2.xaxis.grid(which='minor')
-    ax2.scatter(drive_frequencies, ys)
+    ax2.scatter(off_resonance_frequencies, ys)
 
-    ax3.set_xscale('symlog')
+    ax3.set_xscale('symlog', linthresh=1e-9)
     ax3.set_xlabel('off resonance (GHz)')
     ax3.set_ylabel('z')
     ax3.grid()
     ax3.xaxis.grid(which='minor')
-    ax3.scatter(drive_frequencies, zs)
+    ax3.scatter(off_resonance_frequencies, zs)
 
-    ax4.set_xscale('symlog')
+    ax4.set_xscale('symlog', linthresh=1e-9)
     ax4.set_xlabel('off resonance (GHz)')
     ax4.set_ylabel('angle(rads)')
     ax4.grid()
     ax4.xaxis.grid(which='minor')
-    ax4.scatter(drive_frequencies, angles)
-    fig.savefig(IMAGE_DIR / 'simulation-x_gate-off_resonance.png')
+    ax4.scatter(off_resonance_frequencies, angles)
+
+    ax5.set_xscale('symlog', linthresh=1e-9)
+    ax5.set_xlabel('off resonance (GHz)')
+    ax5.set_ylabel(r'$\theta$(degree)')
+    ax5.grid()
+    ax5.xaxis.grid(which='minor')
+    ax5.scatter(off_resonance_frequencies, theta)
+
+    ax6.set_xscale('symlog', linthresh=1e-9)
+    ax6.set_xlabel('off resonance (GHz)')
+    ax6.set_ylabel(r'$\phi$(degree)')
+    ax6.grid()
+    ax6.xaxis.grid(which='minor')
+    ax6.scatter(off_resonance_frequencies, phi)
+
+    for i in range(7):
+        figs[i].savefig(IMAGE_DIR / f'simulation-x_gate-off_resonance-{i}.png')
 
 
 def calibrate_x_pulse_with_off_resonance():
@@ -699,7 +719,7 @@ def calibrate_x_pulse_with_off_resonance():
         off_resonance_rate *= 2
     off_resonances = [-r for r in off_resonances[::-1]] + [0] + off_resonances
 
-    drive_frequencies = []
+    off_resonance_frequencies = []
     amplitudes = []
     xs = []
     ys = []
@@ -712,13 +732,13 @@ def calibrate_x_pulse_with_off_resonance():
             omega=omega)
         if not pulse_final.is_good:
             continue
-        drive_frequencies.append(off_resonance_frequency)
+        off_resonance_frequencies.append(off_resonance_frequency)
         amplitudes.append(pulse_final.amplitude)
         xs.append(pulse_final.axis_x)
         ys.append(pulse_final.axis_y)
         zs.append(pulse_final.axis_z)
         angles.append(pulse_final.angle)
-    plot_rabi_frequencies(drive_frequencies, amplitudes, xs, ys, zs, angles)
+    plot_off_resonance_effects(off_resonance_frequencies, amplitudes, xs, ys, zs, angles)
 
 
 def main():
