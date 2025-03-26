@@ -25,6 +25,7 @@ from qiskit_pulse_control import coordinate
 
 IMAGE_DIR = pathlib.Path('images') / 'off_resonance'
 CACHE_DIR = pathlib.Path('cache')
+DT = 1 / 4.5  # time of dt in nanosecond
 
 
 @dataclasses.dataclass
@@ -190,14 +191,13 @@ def simulate_two_level():
     \end{align*}
     $$
     '''
-    dt = 1 / 4.5  # in nanosecond
     qubit_frequency = 4.6  # in GHz
     drive_frequency = 4.610  # in GHz
     omega = 0.6  # in 10^9 rads
 
-    nu_z = qubit_frequency * dt
-    nu_x = omega / 2 / np.pi * dt
-    nu_d = drive_frequency * dt
+    nu_z = qubit_frequency * DT
+    nu_x = omega / 2 / np.pi * DT
+    nu_d = drive_frequency * DT
 
     I = quantum_info.Operator.from_label('I')
     X = quantum_info.Operator.from_label('X')
@@ -355,7 +355,6 @@ def two_level_solver(qubit_frequency: float = 4.6,
         omega: A hardward constant in 10^9 rads. This is the value of $\\Omega$
             in the Hamiltonian above.
     '''
-    dt = 1 / 4.5  # in nanosecond
     qubit_frequency = qubit_frequency or 4.6  # in GHz
     drive_frequency = drive_frequency or qubit_frequency  # in GHz
     omega = omega or 0.6  # in 10^9 rads
@@ -365,9 +364,9 @@ def two_level_solver(qubit_frequency: float = 4.6,
     Y = quantum_info.Operator.from_label('Y')
     Z = quantum_info.Operator.from_label('Z')
 
-    nu_z = qubit_frequency * dt
-    nu_x = omega / 2 / np.pi * dt
-    nu_d = drive_frequency * dt
+    nu_z = qubit_frequency * DT
+    nu_x = omega / 2 / np.pi * DT
+    nu_d = drive_frequency * DT
     rotating_frame_frequency = nu_d
     drift = -2 * np.pi * rotating_frame_frequency * Z / 2
 
@@ -584,14 +583,13 @@ def demo_rotate_two_rounds():
     tau = 0.5
 
     rounds = 2
-    dt = 1 / 4.5  # in nanosecond
     qubit_frequency = 4.6  # in GHz
-    drive_frequency = qubit_frequency + rounds / t_final / dt  # in GHz
+    drive_frequency = qubit_frequency + rounds / t_final / DT  # in GHz
     omega = 0.6  # in 10^9 rads
 
-    nu_z = qubit_frequency * dt
-    nu_x = omega / 2 / np.pi * dt
-    nu_d = drive_frequency * dt
+    nu_z = qubit_frequency * DT
+    nu_x = omega / 2 / np.pi * DT
+    nu_d = drive_frequency * DT
 
     I = quantum_info.Operator.from_label('I')
     X = quantum_info.Operator.from_label('X')
@@ -607,7 +605,7 @@ def demo_rotate_two_rounds():
     drift = -2 * np.pi * rotating_frame_frequency * Z / 2
 
     # rwa_cutoff_freq should be set in this range:
-    # abs(rotating_frame_frequency - drive_frequency * dt) < rwa_cutoff_freq < rotating_frame_frequency + drive_frequency * dt
+    # abs(rotating_frame_frequency - drive_frequency * DT) < rwa_cutoff_freq < rotating_frame_frequency + drive_frequency * DT
     solver = qiskit_dynamics.Solver(
         static_hamiltonian=.5 * 2 * np.pi * nu_z * (I - Z),
         hamiltonian_operators=[2 * np.pi * nu_x * X],
@@ -621,7 +619,6 @@ def demo_rotate_two_rounds():
 
 def draw_pulse_signal():
     '''Convert the pulse schedule to signal, and draw the signal.'''
-    dt = 1 / 4.5  # in nanosecond
     qubit_frequency = 4.5  # in GHz
     with qiskit.pulse.build() as schedule:
         gaussian = qiskit.pulse.library.Gaussian(
@@ -629,7 +626,7 @@ def draw_pulse_signal():
         qiskit.pulse.play(gaussian, qiskit.pulse.DriveChannel(0))
 
     converter = qiskit_dynamics.pulse.InstructionToSignals(
-        1, carriers={'d0': qubit_frequency * dt})
+        1, carriers={'d0': qubit_frequency * DT})
     signal = converter.get_signals(schedule)[0]
 
     figure, ax = plt.subplots()
