@@ -11,6 +11,7 @@ import numpy as np
 import numpy.typing
 from scipy import optimize
 from qiskit.circuit import parameter
+from sympy.physics import paulialgebra
 import matplotlib.pyplot as plt
 import qiskit.pulse
 import qiskit.pulse.library
@@ -19,6 +20,7 @@ import qiskit_dynamics.pulse
 from qiskit import quantum_info
 import qutip
 from klepto import safe
+import sympy
 import time
 
 from qiskit_pulse_control import coordinate
@@ -388,6 +390,79 @@ def two_level_solver(qubit_frequency: float = 4.6,
     )
 
 
+def gaussian_pulse_magnus_on_two_level(
+        off_resonance_frequency: float | sympy.Symbol,
+        omega: float | sympy.Symbol, amplitude: float | sympy.Symbol,
+        duration: float | sympy.Symbol,
+        sigma: float | sympy.Symbol) -> list[float | sympy.Symbol]:
+    r'''Generate a list of Magnus expansion representing the rotation of the
+    Gaussian puslse.
+
+    The 0th-index item is the first order term of the Magnus expansion, the
+    1th-index item is the second order term of the Magnus expansion, and so on.
+
+    The rotation represented by each item is
+    
+    ```python
+    x*paulialgebra.Pauli(1) + y*paulialgebra.Pauli(2) + z*paulialgebra.Pauli(3),
+    ```
+
+    where `(x, y, z)` is the unnormalized rotation axis and
+    `\sqrt(x^2 + y^2 + z^2)` is the rotation angle.
+
+    Args:
+        off_resonance_frequency: signal's frequency minus qubit's frequency in GHz
+        amplitude: The amplitude of the Gaussian pulse.
+        omega: A hardward constant in 10^9 rads. This is the value of $\\Omega$
+            in the Hamiltonian above.
+        duration: duration of the pulse in dt.
+        sigma: sigma value of the Gaussian pulse in dt.
+    '''
+    off_resonance_frequency *= 2 * sympy.pi * DT  # convert to rads/dt
+    omega *= DT  # convert to rads/dt
+    return [
+        # 1st order
+        (omega * amplitude / (sympy.sqrt(2) *
+                              (1 - sympy.exp(-((duration + 2)**2) /
+                                             (8 * sigma**2))))) *
+        (2 * sympy.sqrt(sympy.pi) * sigma * sympy.erf(
+            duration / (2 * sympy.sqrt(2) * sigma)) - duration * sympy.exp(-(
+                (duration + 2)**2) / (8 * sigma**2))) * paulialgebra.Pauli(1) +
+        off_resonance_frequency * duration * paulialgebra.Pauli(3),
+        # 2nd order
+        0,
+        # 3rd order
+        (sympy.sqrt(2) * omega * amplitude * off_resonance_frequency**2) /
+        (1 - sympy.exp(-((duration + 2)**2) / (8 * sigma**2))) *
+        ((sympy.sqrt(2) * sigma**2 / 8) * duration * sympy.exp(-duration**2 /
+                                                               (8 * sigma**2)) +
+         (sympy.sqrt(2) * duration * sigma**2 / 8) * sympy.exp(-(
+             (duration - 2)**2) / (8 * sigma**2)) +
+         (sympy.sqrt(sympy.pi) * sigma / 24) *
+         (duration**2 - 12 * sigma**2) * sympy.erf(duration /
+                                                   (2 * sympy.sqrt(2) * sigma)))
+        * paulialgebra.Pauli(1) +
+        (omega**2 * amplitude**2 * off_resonance_frequency) /
+        (sympy.sqrt(sympy.pi) * (1 - sympy.exp(-((duration + 2)**2) /
+                                               (8 * sigma**2)))**2) *
+        (sympy.sqrt(2) * sympy.pi * (sigma**2 - sympy.Rational(1, 2)) *
+         sympy.exp(-duration**2 / (8 * sigma**2)) * sympy.erf(duration /
+                                                              (2 * sigma)) -
+         (sympy.sqrt(2) * sympy.pi / 4) *
+         (2 * sigma**2 + 1) * sympy.exp(-duration**2 / (8 * sigma**2)) *
+         sympy.erf(duration / (2 * sympy.sqrt(2) * sigma)) +
+         (sympy.sqrt(2) * sympy.pi / 16) * (2 * sigma**2 - 1) *
+         (duration**2 + 4 * sigma**2) * sympy.exp(-((duration + 2)**2) /
+                                                  (8 * sigma**2)) *
+         sympy.erf(duration / (2 * sympy.sqrt(2) * sigma)) + 2 * sympy.sqrt(2) *
+         sympy.sqrt(sympy.pi) * duration * sympy.exp(-(duration**2 +
+                                                       (duration + 2)**2) /
+                                                     (8 * sigma**2)) -
+         (7 * sympy.sqrt(2) * sympy.sqrt(sympy.pi) * duration / 8) *
+         sympy.erf(duration / (4 * sigma))**2) * paulialgebra.Pauli(3)
+    ]
+
+
 @safe.no_cache(
     cache=archives.dir_archive(name=CACHE_DIR / 'scripts' /
                                'calibrate_x_gaussian_pulse'),
@@ -635,10 +710,17 @@ def draw_pulse_signal():
     plt.show()
 
 
-def plot_off_resonance_effects(off_resonance_frequencies: list[float],
-                          amplitudes: list[float], xs: list[float],
-                          ys: list[float], zs: list[float],
-                          angles: list[float]):
+def plot_off_resonance_effects(
+    off_resonance_frequencies: list[float],
+    amplitudes: list[float],
+    xs: list[float],
+    ys: list[float],
+    zs: list[float],
+    angles: list[float],
+    magnus: list[sympy.Expr],
+    off_resonance_frequency_symbol: sympy.Symbol,
+    amplitude_symbol: sympy.Symbol,
+):
     for i in range(len(xs)):
         if xs[i] < 0:
             xs[i] = -xs[i]
@@ -653,12 +735,28 @@ def plot_off_resonance_effects(off_resonance_frequencies: list[float],
         axs.append(ax)
     ax0, ax1, ax2, ax3, ax4, ax5, ax6 = axs
 
+    first_order = magnus[0]
+    x = first_order.coeff(paulialgebra.Pauli(1))
+    z = first_order.coeff(paulialgebra.Pauli(3))
+    if (not x.has_free(amplitude_symbol) or
+            not z.has_free(off_resonance_frequency_symbol)):
+        raise ValueError(
+            'The first order term should be a function of the amplitude and the off resonance frequency.'
+        )
+    x = x.subs({amplitude_symbol: 1})
+    predicted_amplitude = sympy.sqrt(sympy.pi**2 - z**2) / x
+
     ax0.set_xscale('symlog', linthresh=1e-9)
     ax0.set_xlabel('off resonance (GHz)')
     ax0.set_ylabel('amplitudes')
     ax0.grid()
     ax0.xaxis.grid(which='minor')
     ax0.scatter(off_resonance_frequencies, amplitudes)
+    ax0.plot(off_resonance_frequencies, [
+        predicted_amplitude.subs({
+            off_resonance_frequency_symbol: r
+        }).evalf() for r in off_resonance_frequencies
+    ])
 
     ax1.set_xscale('symlog', linthresh=1e-9)
     ax1.set_xlabel('off resonance (GHz)')
@@ -735,7 +833,18 @@ def calibrate_x_pulse_with_off_resonance():
         ys.append(pulse_final.axis_y)
         zs.append(pulse_final.axis_z)
         angles.append(pulse_final.angle)
-    plot_off_resonance_effects(off_resonance_frequencies, amplitudes, xs, ys, zs, angles)
+    off_resonance_frequency_symbol = sympy.Symbol('delta_omega')
+    amplitude_symbol = sympy.Symbol('amplitude')
+    magnus = gaussian_pulse_magnus_on_two_level(
+        off_resonance_frequency_symbol,
+        omega,
+        amplitude_symbol,
+        duration=256,
+        sigma=64)
+    plot_off_resonance_effects(off_resonance_frequencies[3:-3],
+                               amplitudes[3:-3], xs[3:-3], ys[3:-3], zs[3:-3],
+                               angles[3:-3], magnus,
+                               off_resonance_frequency_symbol, amplitude_symbol)
 
 
 def main():
