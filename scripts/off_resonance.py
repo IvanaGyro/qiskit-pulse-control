@@ -269,11 +269,13 @@ def find_rabi_rate(solver: qiskit_dynamics.Solver,
         current_schedule = schedule.assign_parameters(
             {amplitude_parameter: amplitude}, inplace=False)
         sol: ivp.OdeResult = solver.solve(
+            method='jax_odeint',
             t_span=[0., t_final],
             y0=y0,
             signals=current_schedule,
-            t_eval=t_eval)
-        final_state: quantum_info.states.Statevector = sol.y[t_final]
+            t_eval=t_eval,
+            atol=1e-12)
+        final_state: quantum_info.states.Statevector = sol.y[-1]
         return final_state.expectation_value(Z).real
 
     amplitudes = np.linspace(0.02, 0.75, 25)
@@ -387,6 +389,7 @@ def two_level_solver(qubit_frequency: float = 4.6,
         dt=1,
         rotating_frame=drift,
         rwa_cutoff_freq=nu_d * 1.5,
+        array_library='jax',
     )
 
 
@@ -567,6 +570,7 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     Z = quantum_info.Operator.from_label('Z')
     start_timer('state_evole')
     sol: ivp.OdeResult = solver.solve(
+        method='jax_odeint',
         t_span=[0., t_final],
         y0=quantum_info.states.Statevector([1., 0.]),
         signals=x_pi_pulse,
@@ -583,6 +587,7 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     # and to make the error of decompsed coefficient small enough
     start_timer('unitary_evolve')
     sol: ivp.OdeResult = solver.solve(
+        method='jax_odeint',
         t_span=[0., t_final],
         y0=np.eye(2, dtype=np.complex128),
         signals=x_pi_pulse,

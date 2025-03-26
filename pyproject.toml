@@ -19,6 +19,7 @@ numpy-quaternion = "^2024.0.3"
 numba = "^0.60.0"
 scipy = "^1.14.1"
 qiskit-dynamics = "^0.5.1"
+jax = "^0.5.3"
 
 
 [build-system]
