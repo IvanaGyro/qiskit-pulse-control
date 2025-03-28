@@ -26,6 +26,7 @@ import time
 from qiskit_pulse_control import coordinate
 
 IMAGE_DIR = pathlib.Path('images') / 'off_resonance'
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR = pathlib.Path('cache')
 DT = 1 / 4.5  # time of dt in nanosecond
 
