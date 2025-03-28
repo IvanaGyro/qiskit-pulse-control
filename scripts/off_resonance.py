@@ -402,7 +402,7 @@ def gaussian_pulse_magnus_on_two_level(
         off_resonance_frequency: float | sympy.Symbol,
         omega: float | sympy.Symbol, amplitude: float | sympy.Symbol,
         duration: float | sympy.Symbol,
-        sigma: float | sympy.Symbol) -> list[float | sympy.Symbol]:
+        sigma: float | sympy.Symbol) -> list[sympy.Expr]:
     r'''Generate a list of Magnus expansion representing the rotation of the
     Gaussian puslse.
 
@@ -438,7 +438,7 @@ def gaussian_pulse_magnus_on_two_level(
                 (duration + 2)**2) / (8 * sigma**2))) * paulialgebra.Pauli(1) +
         off_resonance_frequency * duration * paulialgebra.Pauli(3),
         # 2nd order
-        0,
+        sympy.Expr(0),
         # 3rd order
         (sympy.sqrt(2) * omega * amplitude * off_resonance_frequency**2) /
         (1 - sympy.exp(-((duration + 2)**2) / (8 * sigma**2))) *
