@@ -83,46 +83,115 @@ def decompose_unitary(unitary: numpy.typing.NDArray) -> tuple[float]:
     $$
 
     Returns:
-        A tuple of which values are `(\cos(\theta / 2), n_x \sin(\theta / 2), n_y \sin(\theta / 2), n_z \sin(\theta / 2))`
+        A tuple of which values are `(\cos(\theta / 2), n_x \sin(\theta / 2), n_y \sin(\theta / 2), n_z \sin(\theta / 2))`.
+        \theta is assumed in the range [0, pi].
     '''
     TOLERANCE = 1e-8
     RELATIVE_TOLERANCE = 1e-6
     if unitary.shape != (2, 2):
-        raise ValueError(f'Unitary should be a 2x2 matrix. unitary: {unitary}')
-    pauli_operators = quantum_info.SparsePauliOp.from_operator(unitary)
-    if not pauli_operators.is_unitary():
-        raise ValueError(f'Matrix is not an unitary. matrix: {unitary}')
-    coefficients = {'I': 0, 'X': 0, 'Y': 0, 'Z': 0}
-    errors = {'I': 0, 'X': 0, 'Y': 0, 'Z': 0}
-    coefficients.update(pauli_operators.to_list())
-    global_phase = coefficients['I'] / np.abs(coefficients['I'])
-
-    corrected_coefficient = coefficients['I'] / global_phase
-    if abs(np.imag(corrected_coefficient)) > TOLERANCE:
-        errors['I'] = np.imag(corrected_coefficient)
         raise ValueError(
-            f'Error higher than the tolerance. input unitary:{unitary}')
-    coefficients['I'] = np.real(corrected_coefficient)
+            f'Unitary should be a 2x2 matrix. intput unitary:\n{repr(unitary)}')
+
+    def normalize_phase(phase: float):
+        '''Normalize the phase into the range (-pi, pi].'''
+        phase %= 2 * np.pi
+        return phase - 2 * np.pi if phase > np.pi else phase
+
+    # The input unitary can be expressed as
+    # exp(1j*phi) * [[r_1*exp(1j*phi_1), r_2*exp(-1j*(phi_2 + pi))],
+    #                [r_2*exp(1j*phi_2), r_1*exp(-1j*phi_1)]]
+    offset = np.pi if unitary[0, 1] != 0 else 0
+    phase_seed = (np.sum(np.angle(unitary)) + offset) / 4
+    possible_global_phase = [
+        normalize_phase(phase_seed + n * np.pi / 2) for n in range(4)
+    ]
+
+    pauli_operators = quantum_info.SparsePauliOp.from_operator(unitary)
+    coefficients = {'I': 0, 'X': 0, 'Y': 0, 'Z': 0}
+    coefficients.update(pauli_operators.to_list())
+
+    # Detect the global phase from the result of decomposition. The guess is
+    # not accurate enough, so we don't use it to remove the global phase.
+    if coefficients['I'] != 0:
+        phase_guess = np.angle(coefficients['I'])
+    else:
+        # Theta is pi. There are two possible opposite directions of the
+        # rotaion axis. Just pick one.
+        for label in ('X', 'Y', 'Z'):
+            if coefficients[label] == 0:
+                continue
+            phase_guess = normalize_phase(
+                np.angle(coefficients[label]) + np.pi / 2)
+            break
+    # May have problem when the phase is close to pi
+    matches = np.isclose(possible_global_phase, phase_guess, rtol=0, atol=1e-3)
+    global_phase = None
+    for i in range(4):
+        if matches[i]:
+            global_phase = possible_global_phase[i]
+            break
+    else:
+        raise ValueError('Fail to detect the global phase. intput unitary:\n'
+                         f'{repr(unitary)}')
+    corrected_unitary = np.exp(-1j * global_phase) * unitary
+    pauli_operators = quantum_info.SparsePauliOp.from_operator(
+        corrected_unitary)
+    coefficients.update(pauli_operators.to_list())
+
+    def is_unitary(sparse_pauli_operator: quantum_info.SparsePauliOp,
+                   atol=1e-8,
+                   rtol=1e-5):
+        '''Check if the operator is unitary.
+
+        SparsePauliOp.is_unitary() doesn't pass the tolerance to
+        SparsePauliOp.simplify(), so we reimplement it.
+        '''
+        # Compose with adjoint
+        val = sparse_pauli_operator.compose(
+            sparse_pauli_operator.adjoint()).simplify(
+                atol=atol, rtol=rtol)
+        # See if the result is an identity
+        return (val.size == 1 and
+                np.isclose(val.coeffs[0], 1.0, atol=atol, rtol=rtol) and
+                not np.any(val.paulis.x) and not np.any(val.paulis.z))
+
+    if not is_unitary(pauli_operators, atol=1e-6, rtol=1e-6):
+        raise ValueError(
+            f'Matrix is not an unitary. intput matrix:\n{repr(unitary)}')
+    errors = {
+        'I': abs(np.imag(coefficients['I'])),
+        'X': abs(np.real(coefficients['X'])),
+        'Y': abs(np.real(coefficients['Y'])),
+        'Z': abs(np.real(coefficients['Z'])),
+    }
+    coefficients = {
+        'I': np.real(coefficients['I']),
+        'X': -np.imag(coefficients['X']),
+        'Y': -np.imag(coefficients['Y']),
+        'Z': -np.imag(coefficients['Z']),
+    }
+
+    # check if the errors lower than the tolerance
+    if errors['I'] > TOLERANCE:
+        raise ValueError(
+            f'Error higher than the tolerance. input unitary:\n{repr(unitary)}')
     inaccurate = False
     for label in ('X', 'Y', 'Z'):
-        corrected_coefficient = coefficients[label] / global_phase
-        if abs(np.real(corrected_coefficient)) > TOLERANCE:
-            errors[label] = np.real(corrected_coefficient)
+        corrected_coefficient = coefficients[label]
+        if errors[label] > TOLERANCE:
             inaccurate = True
             print(f'Warning: Error higher than the tolerance. '
                   f' label:{label} coefficient:{corrected_coefficient}'
-                  f' input unitary:{unitary}')
-        coefficients[label] = -np.imag(coefficients[label] / global_phase)
+                  f' input unitary:\n{repr(unitary)}')
     if inaccurate:
         axis = np.array(
             (coefficients['X'], coefficients['Y'], coefficients['Z']))
         axis_length = np.sqrt(axis.dot(axis))
-        if any(
-                abs(e / axis_length) > RELATIVE_TOLERANCE
-                for e in errors.values()):
+        if any(e > axis_length * RELATIVE_TOLERANCE for e in errors.values()):
             raise ValueError(f'Relative error higher than the tolerance. '
-                             f'axis:{axis} length:{axis_length} '
-                             f'input unitary:{unitary}')
+                             f'axis:{axis} length:{axis_length}\n'
+                             f'errors:{errors.values()}\n'
+                             f'input unitary:{repr(unitary)}')
     return tuple(coefficients.values())
 
 
