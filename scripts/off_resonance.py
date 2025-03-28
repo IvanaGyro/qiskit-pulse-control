@@ -264,6 +264,7 @@ def find_rabi_rate(solver: qiskit_dynamics.Solver,
     t_eval = np.linspace(0., t_final, n_steps)
 
     y0 = quantum_info.states.Statevector([1., 0.])
+    I = quantum_info.Operator.from_label('I')
     Z = quantum_info.Operator.from_label('Z')
 
     def evolve(amplitude: float):
@@ -275,9 +276,10 @@ def find_rabi_rate(solver: qiskit_dynamics.Solver,
             y0=y0,
             signals=current_schedule,
             t_eval=t_eval,
-            atol=1e-12)
+            atol=1e-12,
+            rtol=1e-6)
         final_state: quantum_info.states.Statevector = sol.y[-1]
-        return final_state.expectation_value(Z).real
+        return final_state.expectation_value((I - Z) / 2).real
 
     amplitudes = np.linspace(0.02, 0.75, 25)
     expectations = [evolve(a) for a in amplitudes]
