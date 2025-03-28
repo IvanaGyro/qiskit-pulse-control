@@ -392,7 +392,9 @@ def two_level_solver(qubit_frequency: float = 4.6,
         dt=1,
         rotating_frame=drift,
         rwa_cutoff_freq=nu_d * 1.5,
-        array_library='jax',
+        # Using numpy doesn't impact the performance of jax_odeint a lot, but
+        # using jax significantly hit the performance of DOP853.
+        array_library='numpy',
     )
 
 
@@ -571,16 +573,18 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     X = quantum_info.Operator.from_label('X')
     Y = quantum_info.Operator.from_label('Y')
     Z = quantum_info.Operator.from_label('Z')
-    start_timer('state_evole')
+    start_timer('state_evolve')
     sol: ivp.OdeResult = solver.solve(
         method='jax_odeint',
         t_span=[0., t_final],
         y0=quantum_info.states.Statevector([1., 0.]),
         signals=x_pi_pulse,
         t_eval=t_eval)
+    sol.y = list(sol.y)
+    stop_timer('state_evolve')
+
     title = rf'$\omega_q = {qubit_frequency} GHz$ $\omega_d = {drive_frequency} GHz$ $\Omega = {omega}$'
     filename = f'simulation-x_gate-q_{qubit_frequency},d_{drive_frequency},o_{omega}'
-    stop_timer('state_evole')
 
     start_timer('plot_qubit_dynamics')
     plot_qubit_dynamics(sol, t_eval, X, Y, Z, title=title, filename=filename)
@@ -590,13 +594,18 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
     # and to make the error of decompsed coefficient small enough
     start_timer('unitary_evolve')
     sol: ivp.OdeResult = solver.solve(
-        method='jax_odeint',
+        # The default method performs better than jax_odeint when the tolerance
+        # are small.
+        method='DOP853',
         t_span=[0., t_final],
         y0=np.eye(2, dtype=np.complex128),
         signals=x_pi_pulse,
         t_eval=t_eval,
-        atol=1e-12,
-        rtol=1e-12)
+        atol=1e-16,
+        rtol=1e-12,
+    )
+    # jax solvers doesn't really solve until querying the results
+    sol.y = list(sol.y)
     stop_timer('unitary_evolve')
 
     # rotation_matrix = $\cos(\theta / 2) I - i \sin(\theta / 2) \hat{n} \cdot \vec{\sigma}$
@@ -608,8 +617,7 @@ def calibrate_and_evaluate_x_gaussian_pulse(qubit_frequency: float,
 
     start_timer('decompose_unitary_series')
     previous_axis = np.zeros(3)
-    for t_i, sol_t in enumerate(sol.y):
-        rotation_matrix = sol_t
+    for t_i, rotation_matrix in enumerate(sol.y):
         i, x, y, z = decompose_unitary(rotation_matrix)
         axis = np.array((x, y, z))
         if np.dot(previous_axis, axis) < 0:
